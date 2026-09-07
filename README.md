@@ -15,7 +15,7 @@ A dependency-free custom Lovelace card for a portrait household console. It is d
 Use a pinned release URL:
 
 ```yaml
-url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.3/src/lcars-home-panel.js
+url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.4/src/lcars-home-panel.js
 type: module
 ```
 

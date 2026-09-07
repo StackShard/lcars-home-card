@@ -1,9 +1,12 @@
 const EMPTY_STATES = new Set(["", "unknown", "unavailable", "none", null, undefined]);
 
 export function formatFeed(value, fallback) {
-  if (EMPTY_STATES.has(value) || typeof value !== "string") return [fallback];
-  const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  return lines.length ? lines : [fallback];
+  const source = EMPTY_STATES.has(value) || typeof value !== "string" ? fallback : value;
+  const lines = source
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F]+\s*/gu, "").trim().toUpperCase())
+    .filter(Boolean);
+  return lines.length ? lines : [String(fallback).toUpperCase()];
 }
 
 export function normalizeSecurity(state) {

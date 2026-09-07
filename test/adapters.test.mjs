@@ -11,10 +11,11 @@ import {
   visibleForecast,
 } from "../src/lcars-adapters.js";
 
-test("formatFeed preserves lines as text and supplies a fallback", () => {
-  assert.deepEqual(formatFeed("First line\nSecond line", "fallback"), ["First line", "Second line"]);
-  assert.deepEqual(formatFeed("unavailable", "fallback"), ["fallback"]);
-  assert.deepEqual(formatFeed("", "fallback"), ["fallback"]);
+test("formatFeed removes decorative emoji and normalizes dashboard feed copy", () => {
+  assert.deepEqual(formatFeed("⛽ Fuel 153.9¢/L\nUpdate nightly", "fallback"), ["FUEL 153.9¢/L", "UPDATE NIGHTLY"]);
+  assert.deepEqual(formatFeed("📖 Peripeteia\nA sudden turn", "fallback"), ["PERIPETEIA", "A SUDDEN TURN"]);
+  assert.deepEqual(formatFeed("unavailable", "fallback"), ["FALLBACK"]);
+  assert.deepEqual(formatFeed("", "fallback"), ["FALLBACK"]);
 });
 
 test("normalizeSecurity reserves alert status for actual open states", () => {
