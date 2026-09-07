@@ -1,0 +1,7 @@
+# Local dashboard material must never be committed.
+/_ha/
+/_proof/
+*.png
+*.jpg
+*.jpeg
+.DS_Store

@@ -1,0 +1,10 @@
+{
+  "name": "lcars-home-card",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/lcars-adapters.js && node --check src/lcars-home-panel.js"
+  }
+}

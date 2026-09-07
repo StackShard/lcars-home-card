@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LCARS Home Panel Fixture</title>
+<style>html,body { margin:0; width:768px; min-height:1024px; background:#06070b; } lcars-home-panel { display:block; width:768px; min-height:1024px; }</style>
+</head>
+<body>
+<lcars-home-panel id="panel"></lcars-home-panel>
+<script type="module">
+import "./src/lcars-home-panel.js";
+const hourly = [0,1,2,3,4].map((offset) => ({ datetime: new Date(Date.now() + offset * 3600000).toISOString(), temperature: 24 - offset, condition: ["cloudy","partlycloudy","sunny","sunny","clear-night"][offset] }));
+const daily = [0,1,2,3].map((offset) => ({ datetime: new Date(Date.now() + offset * 86400000).toISOString(), temperature: 24 + offset, templow: 14 + offset, condition: ["cloudy","partlycloudy","rainy","sunny"][offset] }));
+const states = {
+  "climate.home": { state:"heat", attributes:{ temperature:22, current_temperature:22.4, min_temp:7, max_temp:35, target_temp_step:0.5 } },
+  "weather.home": { state:"cloudy", attributes:{ temperature:24.1, humidity:53, wind_speed:7.2, pressure:1022.8 } },
+  "binary_sensor.front_door": { state:"off", attributes:{} },
+  "binary_sensor.back_door": { state:"off", attributes:{} },
+  "binary_sensor.windows": { state:"off", attributes:{} },
+  "camera.front_door": { state:"streaming", attributes:{ entity_picture:"/_ha/lcars-spike/front-camera-frame.jpg" } },
+  "camera.back_door": { state:"streaming", attributes:{ entity_picture:"/_ha/lcars-spike/back-camera-frame.jpg" } },
+  "sensor.word_of_day": { state:"Peripeteia\nA sudden turn of events, especially in a story." },
+  "sensor.fuel_price": { state:"Fuel 153.9¢/L\nUpdate nightly" },
+};
+const events = [
+  { start:{dateTime:"2026-09-07T10:00:00-04:00"}, end:{dateTime:"2026-09-07T11:00:00-04:00"}, summary:"Family appointment" },
+  { start:{dateTime:"2026-09-07T18:00:00-04:00"}, end:{dateTime:"2026-09-07T19:00:00-04:00"}, summary:"Dinner" },
+];
+const hass = {
+  states, config:{time_zone:"America/Toronto"}, hassUrl:(path)=>path,
+  callApi: async ()=>events,
+  callService: async (_,__,data)=>{ states["climate.family_room_thermostat"].attributes.temperature=data.temperature; panel.hass=hass; },
+  connection:{ subscribeMessage: async (callback, message)=>{ callback({forecast:message.forecast_type === "hourly" ? hourly : daily}); return ()=>{}; } },
+};
+const panel = document.querySelector("#panel");
+panel.setConfig({ entities:{} });
+panel.hass=hass;
+</script>
+</body>
+</html>
