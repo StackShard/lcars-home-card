@@ -48,9 +48,20 @@ test("lights-on section sits under current conditions as its own panel", () => {
   assert.match(source, /const lights = lightsOn\(this\._hass\?\.states\)/);
   assert.match(source, /No lights are on right now\./);
   assert.match(source, /\.tab\.mint \{ background:var\(--mint\)/);
-  assert.match(source, /\.light-chip \{[^}]*background:#181d19/);
-  assert.match(source, /\.light-chip b \{[^}]*background:var\(--mint\)/);
+  assert.match(source, /\.light-chip \{[^}]*background:var\(--row\)/);
+  assert.match(source, /\.light-chip b \{[^}]*background:var\(--mint-ink\)/);
   assert.match(source, /\.light-chip span \{[^}]*font-size:11px/);
+});
+
+test("cinnamoroll theme: pastel palette, rounded panels, mascot, lcars default untouched", () => {
+  assert.match(source, /data-theme="\$\{this\._config\?\.theme === "cinnamoroll" \? "cinnamoroll" : "lcars"\}"/);
+  assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \{ [^}]*--apricot:#a9d8ef/);
+  assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \{ [^}]*--bg:#fbf6ef/);
+  assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \.panel \{ [^}]*border-radius:14px/);
+  assert.match(source, /const MASCOT_CINNAMOROLL = `[\s\S]*?<svg class="mascot"/);
+  assert.match(source, /\.mascot \{ position:absolute; right:20px; bottom:58px/);
+  assert.match(source, /\$\{this\._config\?\.theme === "cinnamoroll" \? MASCOT_CINNAMOROLL : ""\}/);
+  assert.match(source, /\.shell \{ [^}]*--bg:#06070b/);
 });
 
 test("header spans full width flush against the rail with the date inline", () => {
