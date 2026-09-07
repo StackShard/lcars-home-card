@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   cameraStreamMarkup,
   formatFeed,
+  formatPrecipitation,
   formatTime,
   nextTemperature,
   normalizeSecurity,
@@ -38,6 +39,12 @@ test("nextTemperature clamps, respects step, and handles missing values", () => 
 
 test("nextTemperature infers tenth-degree control for a decimal setpoint when HA omits a step", () => {
   assert.equal(nextTemperature(26.4, -1, { min_temp: 10, max_temp: 32, target_temp_step: null }), 26.3);
+});
+
+test("formatPrecipitation shows the provider's real expected amount without inventing a probability", () => {
+  assert.equal(formatPrecipitation({ precipitation: 0 }), "0 mm");
+  assert.equal(formatPrecipitation({ precipitation: 1.25 }), "1.3 mm");
+  assert.equal(formatPrecipitation({}), "—");
 });
 
 test("visibleForecast filters malformed entries and caps a dense iPad strip", () => {

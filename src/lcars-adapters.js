@@ -38,6 +38,12 @@ export function nextTemperature(current, direction, attributes = {}) {
   return Math.round((clamped + Number.EPSILON) / step) * step;
 }
 
+export function formatPrecipitation(entry) {
+  const amount = Number(entry?.precipitation);
+  if (!Number.isFinite(amount)) return "—";
+  return `${amount.toFixed(1).replace(/\.0$/, "")} mm`;
+}
+
 export function visibleForecast(entries, maxEntries) {
   if (!Array.isArray(entries)) return [];
   return entries

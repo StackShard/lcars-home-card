@@ -5,7 +5,7 @@ A dependency-free custom Lovelace card for a portrait household console. It is d
 ## What it does
 
 - Shows three security states, two native HA camera streams, and a full local-day calendar.
-- Subscribes to Home Assistant hourly and daily weather forecasts.
+- Subscribes to Home Assistant hourly and daily weather forecasts, including the provider's expected precipitation amount when supplied.
 - Provides direct, clamped `climate.set_temperature` controls.
 - Renders local Word and Fuel feeds as text, never HTML.
 - Uses no external font, animation, framework, or custom-card dependency.
@@ -15,7 +15,7 @@ A dependency-free custom Lovelace card for a portrait household console. It is d
 Use a pinned release URL:
 
 ```yaml
-url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.2/src/lcars-home-panel.js
+url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.3/src/lcars-home-panel.js
 type: module
 ```
 
@@ -42,7 +42,7 @@ entities:
 
 - Weather uses HA's supported `weather/subscribe_forecast` frontend message.
 - Calendar uses HA's authenticated `callApi` local-day query, so completed events remain visible.
-- Camera surfaces refresh HA-authenticated `entity_picture` frames every ten seconds.
+- Camera surfaces use Home Assistant's native `<ha-camera-stream>` element, with HA handling authenticated live-stream access.
 - Setpoint commands use the climate entity's reported min, max, and temperature step.
 - No entity IDs, event text, feeds, camera files, credentials, or household data belong in this repository.
 
