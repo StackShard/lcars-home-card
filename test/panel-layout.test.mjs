@@ -59,9 +59,37 @@ test("cinnamoroll theme: pastel palette, rounded panels, mascot, lcars default u
   assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \{ [^}]*--bg:#fbf6ef/);
   assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \.panel \{ [^}]*border-radius:14px/);
   assert.match(source, /const MASCOT_CINNAMOROLL = `<img class="mascot" src="https:\/\/cdn\.jsdelivr\.net\/gh\/StackShard\/lcars-home-card@v\$\{VERSION\}\/assets\/cinnamoroll\.png"/);
-  assert.match(source, /\.mascot \{ position:absolute; right:16px; bottom:58px; width:215px/);
+  assert.match(source, /\.mascot \{ position:absolute; right:16px; bottom:58px; width:128px/);
   assert.match(source, /\$\{this\._config\?\.theme === "cinnamoroll" \? MASCOT_CINNAMOROLL : ""\}/);
   assert.match(source, /\.shell \{ [^}]*--bg:#06070b/);
+});
+
+test("cameras are a full-width hero band above the columns, tiles larger", () => {
+  const masthead = source.indexOf("</header>");
+  const band = source.indexOf("<article class=\"panel cameras-panel\">");
+  const columns = source.indexOf("class=\"columns\"");
+  const leftColumn = source.indexOf("left-column");
+  assert.ok(masthead > 0 && band > masthead && columns > band && leftColumn > band, "cameras band must sit between masthead and the two columns");
+  assert.doesNotMatch(source, /\.cameras \{ display:grid; grid-template-columns:1fr 1fr/);
+  assert.match(source, /\.cameras \{ max-width:560px; margin:0 auto; display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(source, /\.camera-glyph \{ font-size:36px/);
+  assert.match(source, /\.camera-label \{ [^}]*min-height:30px/);
+});
+
+test("camera stream elements persist across renders so feeds never restart (flicker fix)", () => {
+  assert.match(source, /this\._cameraTiles = \{\};/);
+  assert.match(source, /_mountCameras\(container\)/);
+  assert.match(source, /container\.replaceChildren\(\)/);
+  assert.match(source, /const cached = this\._cameraTiles\[entity\];/);
+  assert.match(source, /this\._mountCameras\(this\.shadowRoot\.querySelector\("\[data-cameras\]"\)\)/);
+  assert.match(source, /<div class="cameras" data-cameras><\/div>/);
+});
+
+test("fuel card stamps the last poll time so freshness is visible", () => {
+  assert.match(source, /LAST POLLED/);
+  assert.match(source, /fuelState\.last_updated/);
+  assert.match(source, /!UNAVAILABLE\.has\(fuelState\.state\)/);
+  assert.match(source, /\.feed-meta \{ margin-top:5px; color:var\(--text-2\)/);
 });
 
 test("header spans full width flush against the rail with the date inline", () => {
@@ -99,7 +127,7 @@ test("empty states are one dimmed line in a collapsed card", () => {
 
 test("body copy is sentence case and legible; headers stay uppercase", () => {
   assert.match(source, /formatFeed\(this\._state\(e\.word\)\?\.state,[^\n]+\{ uppercase: false \}\)/);
-  assert.match(source, /formatFeed\(this\._state\(e\.fuel\)\?\.state,[^\n]+\{ uppercase: false \}\)/);
+  assert.match(source, /formatFeed\(fuelState\?\.state,[^\n]+\{ uppercase: false \}\)/);
   assert.match(source, /\.feed \{[\s\S]*?text-transform:none/);
   assert.doesNotMatch(source, /\.feed-panel\.fuel \.feed \{[^}]*uppercase/);
   assert.doesNotMatch(source, /align-self:start/);
