@@ -18,6 +18,12 @@ test("calendar is content-sized while weather claims the reclaimed right-column 
   assert.doesNotMatch(source, /\.calendar-panel \{\s*flex:1/);
 });
 
+test("the camera pair consumes its intentional left-column field", () => {
+  assert.match(source, /\.left-column \.cameras-panel \{ flex:1; min-height:0; \}/);
+  assert.match(source, /\.cameras \{[^}]*grid-template-rows:minmax\(0,1fr\)/);
+  assert.match(source, /\.camera \{[^}]*height:100%/);
+});
+
 test("feed cards stay compact and do not render decorative emoji", () => {
   assert.match(source, /font-family:"Arial Narrow","Roboto Condensed"/);
   assert.match(source, /\.feed \{[^}]*text-transform:uppercase/);
