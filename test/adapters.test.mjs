@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  cameraStreamMarkup,
   formatFeed,
   formatTime,
   nextTemperature,
@@ -19,6 +20,14 @@ test("normalizeSecurity reserves alert status for actual open states", () => {
   assert.deepEqual(normalizeSecurity("off"), { label: "SECURE", alert: false });
   assert.deepEqual(normalizeSecurity("on"), { label: "OPEN", alert: true });
   assert.deepEqual(normalizeSecurity("unavailable"), { label: "UNAVAILABLE", alert: false });
+});
+
+test("cameraStreamMarkup uses HA's native stream surface without proxy token markup", () => {
+  const markup = cameraStreamMarkup("Front Door", "camera.front_door_camera", "streaming");
+  assert.match(markup, /<ha-camera-stream/);
+  assert.match(markup, /data-camera="camera\.front_door_camera"/);
+  assert.match(markup, /FRONT DOOR/);
+  assert.doesNotMatch(markup, /camera_proxy|token=/);
 });
 
 test("nextTemperature clamps, respects step, and handles missing values", () => {

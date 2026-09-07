@@ -4,7 +4,7 @@ A dependency-free custom Lovelace card for a portrait household console. It is d
 
 ## What it does
 
-- Shows three security states, two refreshable camera frames, and a full local-day calendar.
+- Shows three security states, two native HA camera streams, and a full local-day calendar.
 - Subscribes to Home Assistant hourly and daily weather forecasts.
 - Provides direct, clamped `climate.set_temperature` controls.
 - Renders local Word and Fuel feeds as text, never HTML.
@@ -15,7 +15,7 @@ A dependency-free custom Lovelace card for a portrait household console. It is d
 Use a pinned release URL:
 
 ```yaml
-url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.1/src/lcars-home-panel.js
+url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.2/src/lcars-home-panel.js
 type: module
 ```
 

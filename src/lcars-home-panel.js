@@ -1,4 +1,5 @@
 import {
+  cameraStreamMarkup,
   formatDay,
   formatFeed,
   formatTime,
@@ -8,7 +9,7 @@ import {
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
 
 const DEFAULTS = {
@@ -83,8 +84,6 @@ export class LcarsHomePanel extends HTMLElement {
     this._calendarKey = null;
     this._calendarError = null;
     this._unsubscribers = [];
-    this._cameraTick = 0;
-    this._cameraTimer = null;
   }
 
   setConfig(config) {
@@ -101,16 +100,10 @@ export class LcarsHomePanel extends HTMLElement {
   }
 
   connectedCallback() {
-    this._cameraTimer = window.setInterval(() => {
-      this._cameraTick += 1;
-      this._render();
-    }, 10_000);
     this._render();
   }
 
   disconnectedCallback() {
-    window.clearInterval(this._cameraTimer);
-    this._cameraTimer = null;
     this._resetSubscriptions();
   }
 
@@ -186,14 +179,6 @@ export class LcarsHomePanel extends HTMLElement {
       });
   }
 
-  _cameraUrl(entity) {
-    const picture = this._state(entity)?.attributes?.entity_picture;
-    if (!picture) return null;
-    const href = this._hass?.hassUrl ? this._hass.hassUrl(picture) : picture;
-    const separator = href.includes("?") ? "&" : "?";
-    return `${href}${separator}lcars_frame=${this._cameraTick}`;
-  }
-
   _render() {
     if (!this.shadowRoot) return;
     if (!this._config || !this._hass) {
@@ -221,11 +206,7 @@ export class LcarsHomePanel extends HTMLElement {
     const cameras = [
       ["FRONT DOOR", e.front_camera],
       ["BACK DOOR", e.back_camera],
-    ].map(([name, entity]) => {
-      const image = this._cameraUrl(entity);
-      const state = this._state(entity)?.state;
-      return `<div class="camera">${image ? `<img alt="${esc(name)} camera" src="${esc(image)}">` : `<div class="camera-off">NO CAMERA IMAGE</div>`}<div class="camera-label"><span>${name}</span><b>${esc(safeText(state, "UNAVAILABLE").toUpperCase())}</b></div></div>`;
-    }).join("");
+    ].map(([name, entity]) => cameraStreamMarkup(name, entity, this._state(entity)?.state)).join("");
 
     const hourly = visibleForecast(this._hourly, 5).map((entry) => `<div class="forecast-item"><span>${esc(formatTime(entry.datetime, "en-CA", tz))}</span><i>${conditionGlyph(entry.condition)}</i><b>${Math.round(entry.temperature)}°</b></div>`).join("") || `<div class="forecast-empty">HOURLY DATA LINKING</div>`;
     const daily = visibleForecast(this._daily, 4).map((entry) => `<div class="forecast-item"><span>${esc(formatDay(entry.datetime, "en-CA", tz))}</span><i>${conditionGlyph(entry.condition)}</i><b>${Math.round(entry.temperature)}°</b><small>${entry.templow != null ? `${Math.round(entry.templow)}°` : ""}</small></div>`).join("") || `<div class="forecast-empty">DAILY DATA LINKING</div>`;
@@ -263,6 +244,10 @@ export class LcarsHomePanel extends HTMLElement {
           </div>
         </section>
       </main>`;
+    this.shadowRoot.querySelectorAll("ha-camera-stream[data-camera]").forEach((stream) => {
+      stream.hass = this._hass;
+      stream.stateObj = this._state(stream.dataset.camera);
+    });
     this.shadowRoot.querySelectorAll("[data-adjust]").forEach((button) => button.addEventListener("click", () => this._setClimate(Number(button.dataset.adjust))));
   }
 }
@@ -273,10 +258,10 @@ const STYLE = `
 .shell { --bg:#06070b; --apricot:#eab18c; --salmon:#e48878; --lilac:#baadd8; --sky:#83bdd2; --gold:#d7bd67; --ink:#101117; --muted:#b8b0bc; min-height:100vh; background:var(--bg); display:grid; grid-template-columns:88px minmax(0,1fr); gap:12px; padding:12px; overflow:hidden; }
 .rail { min-height:100%; position:relative; display:flex; flex-direction:column; align-items:stretch; gap:8px; } .rail-cap { height:84px; background:var(--apricot); border-radius:42px 0 0 0; } .rail-cap.bottom { border-radius:0 0 0 42px; height:126px; } .rail-spine { background:var(--apricot); flex:1; border-radius:0 0 0 34px; margin-left:25px; } .rail-code { color:#07070a; background:var(--gold); padding:8px 5px; font-size:9px; line-height:1.3; font-weight:900; letter-spacing:.11em; text-align:center; border-radius:0 16px 0 16px; }
 .console { min-width:0; display:flex; flex-direction:column; gap:10px; } .masthead { min-height:62px; display:grid; grid-template-columns:38px 1fr auto; gap:10px; align-items:stretch; } .mast-block { background:var(--apricot); border-radius:0 0 20px 0; } .masthead div:nth-child(2) { background:var(--ink); padding:7px 12px; border-left:9px solid var(--apricot); } .masthead small,.climate-body small { color:var(--muted); font-size:9px; letter-spacing:.13em; font-weight:800; } h1 { margin:2px 0 0; color:var(--lcars-text,#f6f0ea); font-size:20px; letter-spacing:.08em; line-height:1; } .masthead time { background:var(--gold); color:#111116; font-weight:900; font-size:11px; letter-spacing:.06em; padding:12px; border-radius:0 18px 18px 0; display:flex; align-items:center; text-align:right; }
-.columns { min-height:0; flex:1; display:grid; grid-template-columns:minmax(0,.91fr) minmax(0,1.09fr); gap:10px; } .left-column,.right-column { min-width:0; display:flex; flex-direction:column; gap:10px; } .calendar-panel { flex:1; min-height:170px; display:flex; flex-direction:column; } .feed-panel.word { min-height:110px; flex:1; display:flex; flex-direction:column; } .feed-panel.word .feed { flex:1; display:flex; flex-direction:column; justify-content:center; } .feed-panel.fuel { min-height:58px; }
+.columns { min-height:0; flex:1; display:grid; grid-template-columns:minmax(0,.91fr) minmax(0,1.09fr); gap:10px; } .left-column,.right-column { min-width:0; display:flex; flex-direction:column; gap:10px; } .calendar-panel { flex:1; min-height:170px; display:flex; flex-direction:column; } .feed-panel.word { min-height:110px; flex:1; display:flex; flex-direction:column; } .feed-panel.word .feed { flex:1; display:flex; flex-direction:column; justify-content:flex-start; padding-top:12px; } .feed-panel.fuel { min-height:58px; }
 .panel { min-width:0; background:var(--ink); border-left:7px solid var(--panel,#baadd8); overflow:hidden; } .tab { color:#09090e; font-weight:950; letter-spacing:.11em; font-size:10px; min-height:24px; padding:6px 10px; display:flex; align-items:center; width:max-content; min-width:42%; border-radius:0 0 14px 0; } .tab.sky { background:var(--sky); } .tab.apricot { background:var(--apricot); } .tab.salmon { background:var(--salmon); } .tab.lilac { background:var(--lilac); } .tab.gold { background:var(--gold); }
 .security-panel { --panel:var(--sky); } .security-list { display:grid; grid-template-columns:1fr 1fr; padding:8px; gap:5px; } .security-row { background:#181a22; border-radius:0 9px 9px 0; padding:6px 7px; display:flex; justify-content:space-between; gap:4px; align-items:center; color:#d6e0e6; font-size:9px; font-weight:800; letter-spacing:.06em; } .security-row:last-child { grid-column:span 2; } .security-row b { color:var(--sky); font-size:8px; } .security-row.alert { background:#412227; color:#ffd6cd; } .security-row.alert b { color:#ff9c8d; }
-.cameras-panel { --panel:var(--sky); } .cameras { display:grid; grid-template-columns:1fr 1fr; gap:5px; padding:7px; } .camera { background:#15171e; min-width:0; overflow:hidden; aspect-ratio:1.35; position:relative; } .camera img { display:block; height:100%; width:100%; object-fit:cover; background:#0a0b0e; } .camera-off { height:100%; display:grid; place-items:center; color:#a1a6b0; font-size:8px; letter-spacing:.1em; } .camera-label { position:absolute; inset:auto 0 0; min-height:23px; padding:5px 6px; background:rgba(5,6,9,.78); display:flex; justify-content:space-between; align-items:center; color:#edf5f6; font-size:8px; font-weight:850; letter-spacing:.06em; } .camera-label b { color:var(--sky); font-size:7px; }
+.cameras-panel { --panel:var(--sky); } .cameras { display:grid; grid-template-columns:1fr 1fr; gap:5px; padding:7px; } .camera { background:#15171e; min-width:0; overflow:hidden; aspect-ratio:1.35; position:relative; } .camera-stream { display:block; height:100%; width:100%; background:#0a0b0e; } .camera-label { position:absolute; inset:auto 0 0; min-height:23px; padding:5px 6px; background:rgba(5,6,9,.78); display:flex; justify-content:space-between; align-items:center; color:#edf5f6; font-size:8px; font-weight:850; letter-spacing:.06em; pointer-events:none; } .camera-label b { color:var(--sky); font-size:7px; }
 .calendar-panel { --panel:var(--apricot); } .events { flex:1; padding:7px 9px; display:flex; flex-direction:column; gap:5px; background:repeating-linear-gradient(to bottom, transparent 0, transparent 30px, rgba(234,177,140,.09) 31px, transparent 32px); } .event { display:grid; grid-template-columns:45px 1fr; gap:7px; align-items:start; border-left:3px solid var(--apricot); padding:5px 6px; background:#19171b; color:#f7dfd3; font-size:10px; line-height:1.25; } .event time { color:var(--apricot); font-weight:900; font-size:8px; letter-spacing:.04em; padding-top:1px; } .event.past { opacity:.57; border-left-color:#75615a; } .event.empty { display:block; color:var(--muted); border-left-color:#6f6875; }
 .climate-panel { --panel:var(--salmon); } .climate-body { min-height:64px; padding:7px 9px; display:grid; grid-template-columns:1fr 45px 1fr 45px; align-items:center; gap:6px; } .climate-body strong { display:block; color:#ffd7ca; font-size:31px; line-height:1; letter-spacing:-.05em; } .current { align-self:center; padding-left:9px; border-left:2px solid #4b3940; } .current small { display:block; } .current b { color:#f6f0ea; display:inline-block; font-size:19px; margin-right:5px; line-height:1; } .current span { color:#d5a99e; font-size:8px; font-weight:800; letter-spacing:.07em; } .adjust { height:43px; border:0; border-radius:0 12px 12px 0; background:var(--salmon); color:#120f12; font-size:30px; line-height:1; font-weight:500; cursor:pointer; } .adjust:last-child { border-radius:12px 0 0 12px; } .adjust:disabled { background:#5c454b; color:#8c7f83; cursor:not-allowed; } .service-error { background:#4a2228; color:#ffd4cc; font-size:9px; padding:4px 9px; }
 .conditions-panel,.forecast-panel { --panel:var(--lilac); } .conditions { min-height:36px; padding:7px 9px; display:grid; grid-template-columns:repeat(3,1fr); gap:6px; } .conditions b { color:#e9e1fc; font-size:11px; } .conditions small { display:block; margin-top:2px; color:#aba2c1; letter-spacing:.05em; font-size:7px; } .forecast { min-height:63px; padding:6px 8px; display:grid; grid-template-columns:repeat(5,1fr); gap:4px; } .daily .forecast { grid-template-columns:repeat(4,1fr); } .forecast-item { min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; background:#1b1923; color:#e8e1f8; padding:4px 2px; } .forecast-item span,.forecast-item small { color:#aca4c0; font-size:7px; font-weight:800; letter-spacing:.04em; } .forecast-item i { color:#c8b6e6; font-style:normal; font-size:18px; line-height:1; } .forecast-item b { font-size:12px; } .forecast-empty { grid-column:1 / -1; align-self:center; color:#aaa0bb; font-size:9px; letter-spacing:.1em; text-align:center; }

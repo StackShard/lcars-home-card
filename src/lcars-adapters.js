@@ -16,6 +16,14 @@ export function normalizeSecurity(state) {
   return { label: "SECURE", alert: false };
 }
 
+export function cameraStreamMarkup(name, entity, state) {
+  const escapeAttribute = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
+  }[character]));
+  const label = String(name ?? "Camera").toUpperCase();
+  return `<div class="camera"><ha-camera-stream class="camera-stream" data-camera="${escapeAttribute(entity)}" aria-label="${escapeAttribute(label)} camera"></ha-camera-stream><div class="camera-label"><span>${escapeAttribute(label)}</span><b>${escapeAttribute(safeText(state, "UNAVAILABLE").toUpperCase())}</b></div></div>`;
+}
+
 export function nextTemperature(current, direction, attributes = {}) {
   const numeric = (value) => value !== null && value !== "" && Number.isFinite(Number(value));
   const min = numeric(attributes.min_temp) ? Number(attributes.min_temp) : 7;
