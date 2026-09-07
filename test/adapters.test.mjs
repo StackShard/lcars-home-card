@@ -2,10 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  cameraOfflineMarkup,
   cameraStreamMarkup,
+  classifyForecast,
+  conditionLabel,
   formatFeed,
   formatPrecipitation,
   formatTime,
+  hvacLabel,
   nextTemperature,
   normalizeSecurity,
   visibleForecast,
@@ -33,7 +37,20 @@ test("cameraStreamMarkup uses HA's native stream surface without proxy token mar
   assert.match(markup, /<ha-camera-stream/);
   assert.match(markup, /data-camera="camera\.front_door_camera"/);
   assert.match(markup, /FRONT DOOR/);
+  assert.match(markup, /LIVE/);
   assert.doesNotMatch(markup, /camera_proxy|token=/);
+});
+
+test("cameraOfflineMarkup renders a placeholder glyph with last-good frame, never a black stream box", () => {
+  const markup = cameraOfflineMarkup("Back Door", "camera.back_door", "unavailable", "/api/camera_proxy/back");
+  assert.match(markup, /class="camera camera-offline"/);
+  assert.match(markup, /class="camera-glyph"/);
+  assert.match(markup, /camera-still/);
+  assert.match(markup, /OFFLINE/);
+  assert.doesNotMatch(markup, /<ha-camera-stream/);
+  const noFrame = cameraOfflineMarkup("Back Door", "camera.back_door", "off", "");
+  assert.doesNotMatch(noFrame, /camera-still/);
+  assert.match(noFrame, /camera-glyph/);
 });
 
 test("nextTemperature clamps, respects step, and handles missing values", () => {
@@ -61,6 +78,34 @@ test("visibleForecast filters malformed entries and caps a dense iPad strip", ()
   assert.deepEqual(visibleForecast(entries, 2), [entries[0], entries[2]]);
 });
 
+test("classifyForecast distinguishes hourly cadence from daily cadence by step size", () => {
+  const hourly = [
+    { datetime: "2026-09-07T17:00:00Z", temperature: 20 },
+    { datetime: "2026-09-07T18:00:00Z", temperature: 21 },
+    { datetime: "2026-09-07T19:00:00Z", temperature: 22 },
+  ];
+  const daily = [
+    { datetime: "2026-09-07T12:00:00Z", temperature: 20 },
+    { datetime: "2026-09-08T12:00:00Z", temperature: 21 },
+    { datetime: "2026-09-09T12:00:00Z", temperature: 22 },
+  ];
+  assert.deepEqual(classifyForecast(hourly), { hourly, daily: [] });
+  assert.deepEqual(classifyForecast(daily), { hourly: [], daily });
+  assert.deepEqual(classifyForecast([{ datetime: "bad" }]), { hourly: [], daily: [] });
+  assert.deepEqual(classifyForecast(undefined), { hourly: [], daily: [] });
+});
+
+test("conditionLabel and hvacLabel give readable sentence-case labels", () => {
+  assert.equal(conditionLabel("partlycloudy"), "Partly cloudy");
+  assert.equal(conditionLabel("rainy"), "Rain");
+  assert.equal(conditionLabel("unavailable"), "Offline");
+  assert.equal(hvacLabel("heat"), "Heating");
+  assert.equal(hvacLabel("heat_cool"), "Auto heat · cool");
+  assert.equal(hvacLabel("off"), "Off");
+});
+
 test("formatTime produces a compact local clock label", () => {
   assert.equal(formatTime("2026-09-07T19:00:00Z", "en-CA", "America/Toronto"), "3 PM");
+  assert.equal(formatTime("2026-09-08T16:00:00Z", "en-CA", "America/Toronto"), "12 PM");
+  assert.equal(formatTime("2026-09-08T17:00:00Z", "en-CA", "America/Toronto"), "1 PM");
 });

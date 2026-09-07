@@ -1,17 +1,23 @@
 import {
+  cameraOfflineMarkup,
   cameraStreamMarkup,
+  classifyForecast,
+  conditionLabel,
   formatDay,
   formatFeed,
   formatPrecipitation,
   formatTime,
+  hvacLabel,
   nextTemperature,
   normalizeSecurity,
   safeText,
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.7";
+const VERSION = "0.1.9";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
+const CAMERA_FAILED = new Set(["unknown", "unavailable", "none", "", "off", "unavailable"]);
+const OPEN_STATES = new Set(["on", "open", "opening", "detected", "alarm"]);
 
 const DEFAULTS = {
   climate: "climate.home",
@@ -162,7 +168,7 @@ export class LcarsHomePanel extends HTMLElement {
         this._render();
       })
       .catch(() => {
-        this._calendarError = "Calendar unavailable";
+        this._calendarError = "Calendar unavailable.";
         this._render();
       });
   }
@@ -175,9 +181,21 @@ export class LcarsHomePanel extends HTMLElement {
     const temperature = nextTemperature(current, direction, climate.attributes);
     this._hass.callService("climate", "set_temperature", { entity_id: entity, temperature })
       .catch(() => {
-        this._serviceError = "Climate command did not complete";
+        this._serviceError = "Climate command did not complete.";
         this._render();
       });
+  }
+
+  _cameraTile(name, entity) {
+    const stateObj = this._state(entity);
+    const state = stateObj?.state;
+    const failed = !stateObj || CAMERA_FAILED.has(state);
+    if (failed) {
+      const picture = stateObj?.attributes?.entity_picture;
+      const url = picture ? (this._hass?.hassUrl ? this._hass.hassUrl(picture) : picture) : "";
+      return cameraOfflineMarkup(name, entity, state, url);
+    }
+    return cameraStreamMarkup(name, entity, state);
   }
 
   _render() {
@@ -190,60 +208,99 @@ export class LcarsHomePanel extends HTMLElement {
     const tz = this._hass.config?.time_zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     const weather = this._state(e.weather);
     const climate = this._state(e.climate);
-    const currentTemp = weather?.attributes?.temperature;
+    const roomTemp = climate?.attributes?.current_temperature;
     const setpoint = climate?.attributes?.temperature ?? climate?.attributes?.target_temp_low;
+    const outsideTemp = weather?.attributes?.temperature;
     const greeting = new Date().getHours() < 12 ? "GOOD MORNING" : new Date().getHours() < 18 ? "GOOD AFTERNOON" : "GOOD EVENING";
-    const today = new Intl.DateTimeFormat("en-CA", { weekday: "long", month: "short", day: "numeric", timeZone: tz }).format(new Date()).toUpperCase();
+    const today = new Intl.DateTimeFormat("en-CA", { weekday: "short", month: "short", day: "numeric", timeZone: tz }).format(new Date()).replace(/\./g, "").toUpperCase();
 
-    const security = [
-      ["FRONT DOOR", this._state(e.front_door)],
-      ["BACK DOOR", this._state(e.back_door)],
-      ["MAIN FLOOR WINDOWS", this._state(e.windows)],
-    ].map(([name, state]) => {
-      const status = normalizeSecurity(state?.state);
+    const securityRows = [
+      ["FRONT DOOR", e.front_door],
+      ["BACK DOOR", e.back_door],
+      ["MAIN FLOOR WINDOWS", e.windows],
+    ].map(([name, entity]) => {
+      const status = normalizeSecurity(this._state(entity)?.state);
       return `<div class="security-row ${status.alert ? "alert" : ""}"><span>${name}</span><b>${status.label}</b></div>`;
     }).join("");
+    const doorsOpen = [
+      this._state(e.front_door)?.state,
+      this._state(e.back_door)?.state,
+      this._state(e.windows)?.state,
+    ].some((state) => OPEN_STATES.has(state));
+    const doorsLabel = doorsOpen ? "OPEN" : "SECURE";
 
     const cameras = [
       ["FRONT DOOR", e.front_camera],
       ["BACK DOOR", e.back_camera],
-    ].map(([name, entity]) => cameraStreamMarkup(name, entity, this._state(entity)?.state)).join("");
+    ].map(([name, entity]) => this._cameraTile(name, entity)).join("");
 
-    const hourly = visibleForecast(this._hourly, 5).map((entry) => `<div class="forecast-item"><span>${esc(formatTime(entry.datetime, "en-CA", tz))}</span><i>${conditionGlyph(entry.condition)}</i><b>${Math.round(entry.temperature)}°</b><small>${esc(formatPrecipitation(entry))}</small></div>`).join("") || `<div class="forecast-empty">HOURLY DATA LINKING</div>`;
-    const daily = visibleForecast(this._daily, 4).map((entry) => `<div class="forecast-item"><span>${esc(formatDay(entry.datetime, "en-CA", tz))}</span><i>${conditionGlyph(entry.condition)}</i><b>${Math.round(entry.temperature)}°</b><small>${entry.templow != null ? `${Math.round(entry.templow)}°` : ""}</small><em>${esc(formatPrecipitation(entry))}</em></div>`).join("") || `<div class="forecast-empty">DAILY DATA LINKING</div>`;
+    const splitForecast = classifyForecast(weather?.attributes?.forecast);
+    const hourlyEntries = this._hourly.length ? this._hourly : splitForecast.hourly;
+    const dailyEntries = this._daily.length ? this._daily : splitForecast.daily;
+    const hourly = visibleForecast(hourlyEntries, 5).map((entry) => `<div class="forecast-item"><span>${esc(formatTime(entry.datetime, "en-CA", tz))}</span><i>${conditionGlyph(entry.condition)}</i><b>${Math.round(entry.temperature)}°</b><small>${esc(formatPrecipitation(entry))}</small></div>`).join("") || `<div class="forecast-empty">Awaiting hourly data.</div>`;
+    const daily = visibleForecast(dailyEntries, 4).map((entry) => `<div class="forecast-item"><span>${esc(formatDay(entry.datetime, "en-CA", tz))}</span><i>${conditionGlyph(entry.condition)}</i><b>${Math.round(entry.temperature)}°</b><small>${entry.templow != null ? `${Math.round(entry.templow)}°` : ""}</small><em>${esc(formatPrecipitation(entry))}</em></div>`).join("") || `<div class="forecast-empty">Awaiting daily data.</div>`;
 
     const now = Date.now();
     const events = this._calendar.map((event) => {
       const isPast = event.end?.dateTime && Date.parse(event.end.dateTime) < now;
       return `<div class="event ${isPast ? "past" : ""}"><time>${esc(formatCalendarTime(event.start, tz))}</time><span>${esc(event.summary ?? "Untitled event")}</span></div>`;
-    }).join("") || `<div class="event empty">${esc(this._calendarError ?? "No family events today")}</div>`;
+    }).join("") || `<div class="event empty">${esc(this._calendarError ?? "No family events today.")}</div>`;
 
-    const word = formatFeed(this._state(e.word)?.state, "Word of the day updates nightly.", { uppercase: false }).map((line) => `<p>${esc(line)}</p>`).join("");
-    const fuel = formatFeed(this._state(e.fuel)?.state, "Fuel prices update nightly.").map((line) => `<p>${esc(line)}</p>`).join("");
+    const word = formatFeed(this._state(e.word)?.state, "The word of the day updates nightly.", { uppercase: false }).map((line) => `<p>${esc(line)}</p>`).join("");
+    const fuel = formatFeed(this._state(e.fuel)?.state, "Fuel prices update nightly.", { uppercase: false }).map((line) => `<p>${esc(line)}</p>`).join("");
     const climateDisabled = !climate || UNAVAILABLE.has(climate.state) ? "disabled" : "";
+
+    const heroTemp = roomTemp == null ? "--" : `${Math.round(roomTemp)}°`;
+    const outsideLabel = outsideTemp == null ? "--" : `${Math.round(outsideTemp)}°`;
+    const setpointLabel = setpoint == null ? "--" : `${Math.round(setpoint)}°`;
+    const roomRow = `${roomTemp == null ? "--" : `${Math.round(roomTemp)}°`}`;
+    const outsideRow = `${outsideTemp == null ? "--" : `${Math.round(outsideTemp)}°`}`;
+    const climateMode = climateDisabled ? "OFFLINE" : esc(hvacLabel(climate?.state).toUpperCase());
+    const humidity = weather?.attributes?.humidity;
 
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
       <main class="shell" aria-label="LCARS household dashboard" data-version="${VERSION}">
-        <aside class="rail" aria-hidden="true"><div class="rail-cap"></div><nav class="rail-nav"><span>SEC</span><span>CAM</span><span>ENV</span><span>DAY</span></nav><div class="rail-status"><b>HOME STATUS</b><small>ALL SYSTEMS<br>OPERATIONAL</small></div><div class="rail-code">LCARS<br>HOME<br>${VERSION}</div></aside>
-        <section class="console">
-          <header class="masthead"><div class="mast-block"></div><div><small>HOME ENVIRONMENT</small><h1>${greeting}</h1></div><time>${today}</time></header>
-          <div class="columns">
-            <section class="left-column">
-              <article class="panel security-panel"><div class="tab sky"><span>SECURITY</span></div><div class="security-list">${security}</div></article>
-              <article class="panel cameras-panel"><div class="tab sky"><span>ENTRY CAMERAS</span></div><div class="cameras">${cameras}</div></article>
-              <article class="panel climate-panel"><div class="tab salmon"><span>FAMILY ROOM · NEST</span></div><div class="climate-body"><div class="setpoint"><small>SETPOINT</small><strong>${esc(setpoint == null ? "--" : `${Math.round(setpoint)}°`)}</strong></div><div class="current"><small>OUTSIDE</small><b>${esc(currentTemp == null ? "--" : `${Math.round(currentTemp)}°`)}</b><span>${esc(safeText(weather?.state, "OFFLINE").toUpperCase())}</span></div><div class="climate-controls"><button class="adjust" data-adjust="-1" ${climateDisabled} aria-label="Decrease thermostat setpoint">−</button><span>ADJUST SETPOINT</span><button class="adjust" data-adjust="1" ${climateDisabled} aria-label="Increase thermostat setpoint">+</button></div></div>${this._serviceError ? `<div class="service-error">${esc(this._serviceError)}</div>` : ""}</article>
-              <article class="panel conditions-panel"><div class="tab lilac"><span>CURRENT CONDITIONS</span></div><div class="conditions"><b>${esc(weather?.attributes?.humidity == null ? "--" : `${Math.round(weather.attributes.humidity)}%`)} <small>HUMIDITY</small></b><b>${esc(weather?.attributes?.wind_speed == null ? "--" : `${Math.round(weather.attributes.wind_speed)} km/h`)} <small>WIND</small></b><b>${esc(weather?.attributes?.pressure == null ? "--" : `${Math.round(weather.attributes.pressure)} hPa`)} <small>PRESSURE</small></b></div></article>
-            </section>
-            <section class="right-column">
-              <article class="panel calendar-panel"><div class="tab apricot"><span>CALENDAR · TODAY</span></div><div class="events">${events}</div></article>
-              <article class="panel forecast-panel"><div class="tab lilac"><span>HOURLY WEATHER · RAIN</span></div><div class="forecast">${hourly}</div></article>
-              <article class="panel forecast-panel daily"><div class="tab lilac"><span>DAILY WEATHER · RAIN</span></div><div class="forecast">${daily}</div></article>
-              <article class="panel feed-panel fuel"><div class="tab gold"><span>FUEL · MARKHAM</span></div><div class="feed">${fuel}</div></article>
-              <article class="panel feed-panel word"><div class="tab gold"><span>WORD OF THE DAY</span></div><div class="feed">${word}</div></article>
-            </section>
-          </div>
-        </section>
+        <div class="top">
+          <aside class="rail">
+            <nav class="rail-nav" aria-label="Dashboard sections">
+              <span>SECURITY</span><span>CAMERAS</span><span>CLIMATE</span><span>WEATHER</span>
+            </nav>
+            <div class="rail-readout">
+              <b>HOME STATUS</b>
+              <div class="rail-row"><span>Doors</span><em class="${doorsOpen ? "warn" : ""}">${doorsLabel}</em></div>
+              <div class="rail-row"><span>Room</span><em>${roomRow}</em></div>
+              <div class="rail-row"><span>Outside</span><em>${outsideRow}</em></div>
+              <div class="rail-row"><span>Humidity</span><em>${humidity == null ? "--" : `${Math.round(humidity)}%`}</em></div>
+            </div>
+          </aside>
+          <section class="console">
+            <header class="masthead">
+              <div class="masthead-copy"><small>HOME ENVIRONMENT</small><h1>${greeting}</h1></div>
+              <time>${today}</time>
+            </header>
+            <div class="columns">
+              <section class="left-column">
+                <article class="panel security-panel"><div class="tab sky"><span>SECURITY</span></div><div class="security-list">${securityRows}</div></article>
+                <article class="panel cameras-panel"><div class="tab sky"><span>ENTRY CAMERAS</span></div><div class="cameras">${cameras}</div></article>
+                <article class="panel climate-panel"><div class="tab salmon"><span>FAMILY ROOM · NEST</span></div><div class="climate-body">
+                  <div class="climate-hero"><small>FAMILY ROOM</small><strong>${heroTemp}</strong><em>${climateMode}</em></div>
+                  <div class="climate-outside"><small>OUTSIDE</small><b>${outsideLabel}</b><span>${esc(conditionLabel(weather?.state))}</span></div>
+                  <div class="climate-controls"><button class="adjust" data-adjust="-1" ${climateDisabled} aria-label="Decrease thermostat setpoint">−</button><span class="climate-setpoint">SET ${setpointLabel}</span><button class="adjust" data-adjust="1" ${climateDisabled} aria-label="Increase thermostat setpoint">+</button></div>
+                </div>${this._serviceError ? `<div class="service-error">${esc(this._serviceError)}</div>` : ""}</article>
+                <article class="panel conditions-panel"><div class="tab lilac"><span>CURRENT CONDITIONS</span></div><div class="conditions"><b>${esc(weather?.attributes?.humidity == null ? "--" : `${Math.round(weather.attributes.humidity)}%`)} <small>HUMIDITY</small></b><b>${esc(weather?.attributes?.wind_speed == null ? "--" : `${Math.round(weather.attributes.wind_speed)} km/h`)} <small>WIND</small></b><b>${esc(weather?.attributes?.pressure == null ? "--" : `${Math.round(weather.attributes.pressure)} hPa`)} <small>PRESSURE</small></b></div></article>
+              </section>
+              <section class="right-column">
+                <article class="panel calendar-panel"><div class="tab apricot"><span>CALENDAR · TODAY</span></div><div class="events">${events}</div></article>
+                <article class="panel forecast-panel"><div class="tab lilac"><span>HOURLY WEATHER</span></div><div class="forecast">${hourly}</div></article>
+                <article class="panel forecast-panel daily"><div class="tab lilac"><span>DAILY WEATHER</span></div><div class="forecast">${daily}</div></article>
+                <article class="panel feed-panel fuel"><div class="tab gold"><span>FUEL · MARKHAM</span></div><div class="feed">${fuel}</div></article>
+                <article class="panel feed-panel word"><div class="tab gold"><span>WORD OF THE DAY</span></div><div class="feed">${word}</div></article>
+              </section>
+            </div>
+          </section>
+        </div>
+        <footer class="footer"><span>ALL SYSTEMS NOMINAL</span><span class="footer-code">LCARS HOME · ${VERSION}</span></footer>
       </main>`;
     this.shadowRoot.querySelectorAll("ha-camera-stream[data-camera]").forEach((stream) => {
       stream.hass = this._hass;
@@ -256,18 +313,23 @@ export class LcarsHomePanel extends HTMLElement {
 const STYLE = `
 :host { display:block; box-sizing:border-box; color:var(--lcars-text,#f6f0ea); font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 * { box-sizing:border-box; } .loading { min-height:100vh; display:grid; place-items:center; background:#06070b; color:#e9b4a4; letter-spacing:.18em; font-weight:700; }
-.shell { --bg:#06070b; --apricot:#eab18c; --salmon:#e48878; --lilac:#baadd8; --sky:#83bdd2; --gold:#d7bd67; --ink:#101117; --muted:#b8b0bc; min-height:100vh; background:var(--bg); display:grid; grid-template-columns:92px minmax(0,1fr); gap:10px; padding:10px; overflow:clip; }
-.rail { display:grid; grid-template-columns:46px 46px; grid-template-rows:64px auto 1fr auto; align-self:stretch; } .rail-cap { grid-column:1 / -1; grid-row:1; background:var(--apricot); border-radius:40px 0 0 0; } .rail-nav { grid-column:1; grid-row:2; display:flex; flex-direction:column; gap:6px; padding:4px 0 0; } .rail-nav span { min-height:24px; display:flex; align-items:center; justify-content:center; background:var(--gold); color:#09090e; font-size:8px; font-weight:950; letter-spacing:.11em; border-radius:12px 0 0 12px; } .rail-spine { grid-column:2; grid-row:2 / 5; background:var(--apricot); margin-top:4px; } .rail-status { grid-column:1; grid-row:3; align-self:start; margin-top:14px; background:var(--ink); border-left:3px solid var(--apricot); border-radius:0 12px 12px 0; padding:6px 4px 6px 6px; } .rail-status b { display:block; font-size:7px; letter-spacing:.09em; color:var(--muted); font-weight:900; margin-bottom:3px; } .rail-status small { display:block; font-size:7px; letter-spacing:.05em; line-height:1.5; color:var(--apricot); font-weight:800; } .rail-code { grid-column:2; grid-row:4; color:#07070a; background:var(--gold); padding:8px 2px; font-size:7px; line-height:1.4; font-weight:900; letter-spacing:.09em; text-align:center; border-radius:18px 0 0 0; }
-.console { min-width:0; display:flex; flex-direction:column; gap:10px; } .masthead { min-height:64px; display:grid; grid-template-columns:1fr auto; gap:10px; align-items:stretch; } .masthead div:nth-child(2) { background:var(--ink); padding:7px 12px; border-left:9px solid var(--apricot); } .masthead small,.climate-body small { color:var(--muted); font-size:9px; letter-spacing:.13em; font-weight:800; } h1 { margin:2px 0 0; color:var(--lcars-text,#f6f0ea); font-size:20px; letter-spacing:.08em; line-height:1; } .masthead time { background:var(--gold); color:#111116; font-weight:900; font-size:11px; letter-spacing:.06em; padding:12px; border-radius:0 18px 18px 0; display:flex; align-items:center; text-align:right; }
-.columns { min-height:0; flex:1; display:grid; grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr); gap:8px; align-items:start; } .left-column,.right-column { min-width:0; display:flex; flex-direction:column; gap:8px; align-self:stretch; } .calendar-panel { --panel:var(--apricot); } .feed-panel.word,.feed-panel.fuel { align-self:start; min-width:0; }
-.panel { min-width:0; background:var(--ink); overflow:hidden; } .tab { color:#09090e; font-weight:950; letter-spacing:.11em; font-size:10px; min-height:25px; padding:6px 10px 6px 0; display:flex; align-items:center; width:100%; clip-path:polygon(0 0,100% 0,100% 48%,calc(100% - 16px) 100%,0 100%); } .tab span { display:block; padding-left:10px; } .tab.sky { background:var(--sky); } .tab.apricot { background:var(--apricot); } .tab.salmon { background:var(--salmon); } .tab.lilac { background:var(--lilac); } .tab.gold { background:var(--gold); }
-.security-panel { --panel:var(--sky); } .security-list { display:grid; grid-template-columns:1fr 1fr; padding:8px; gap:4px; } .security-row { background:#181a22; padding:6px 7px; display:flex; justify-content:space-between; gap:4px; align-items:center; color:#d6e0e6; font-size:9px; font-weight:800; letter-spacing:.06em; } .security-row:last-child { grid-column:span 2; } .security-row b { color:var(--sky); font-size:8px; } .security-row.alert { background:#412227; color:#ffd6cd; } .security-row.alert b { color:#ff9c8d; }
-.cameras-panel { --panel:var(--sky); } .cameras { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:6px; } .camera { background:#15171e; min-width:0; min-height:0; aspect-ratio:16/9; overflow:hidden; position:relative; } .camera-stream { display:block; width:100%; height:100%; background:#0a0b0e; } .camera-label { position:absolute; inset:auto 0 0; min-height:23px; padding:5px 6px; background:rgba(5,6,9,.78); display:flex; justify-content:space-between; align-items:center; color:#edf5f6; font-size:8px; font-weight:850; letter-spacing:.06em; pointer-events:none; } .camera-label b { color:var(--sky); font-size:7px; }
-.calendar-panel { --panel:var(--apricot); } .events { padding:6px 8px; display:flex; flex-direction:column; gap:4px; } .event { display:grid; grid-template-columns:45px 1fr; gap:7px; align-items:start; border-left:3px solid var(--apricot); padding:5px 6px; background:#19171b; color:#f7dfd3; font-size:10px; line-height:1.25; } .event time { color:var(--apricot); font-weight:900; font-size:8px; letter-spacing:.04em; padding-top:1px; } .event.past { opacity:.57; border-left-color:#75615a; } .event.empty { display:block; color:var(--muted); border-left-color:#6f6875; }
-.climate-panel { --panel:var(--salmon); } .climate-body { min-height:99px; padding:8px 9px; display:grid; grid-template-columns:1fr 1fr; grid-template-areas:"setpoint current" "controls controls"; align-items:center; gap:8px; } .setpoint { grid-area:setpoint; } .climate-body strong { display:block; color:#ffd7ca; font-size:31px; line-height:1; letter-spacing:-.05em; } .current { grid-area:current; align-self:center; padding-left:9px; border-left:2px solid #4b3940; } .current small { display:block; } .current b { color:#f6f0ea; display:inline-block; font-size:19px; margin-right:5px; line-height:1; } .current span { color:#d5a99e; font-size:8px; font-weight:800; letter-spacing:.07em; } .climate-controls { grid-area:controls; display:grid; grid-template-columns:44px 1fr 44px; gap:6px; align-items:center; } .climate-controls span { text-align:center; color:#d5a99e; font-size:8px; font-weight:850; letter-spacing:.1em; } .adjust { height:36px; border:0; border-radius:0 11px 11px 0; background:var(--salmon); color:#120f12; font-size:27px; line-height:1; font-weight:500; cursor:pointer; } .adjust:last-child { border-radius:11px 0 0 11px; } .adjust:disabled { background:#5c454b; color:#8c7f83; cursor:not-allowed; } .service-error { background:#4a2228; color:#ffd4cc; font-size:9px; padding:4px 9px; }
-.conditions-panel,.forecast-panel { --panel:var(--lilac); } .conditions { min-height:36px; padding:7px 9px; display:grid; grid-template-columns:repeat(3,1fr); gap:6px; } .conditions b { color:#e9e1fc; font-size:11px; } .conditions small { display:block; margin-top:2px; color:#aba2c1; letter-spacing:.05em; font-size:7px; } .forecast-panel { display:flex; flex-direction:column; } .forecast { padding:6px 8px; display:grid; grid-template-columns:repeat(5,1fr); gap:4px; align-content:center; flex:1; min-height:0; } .daily .forecast { grid-template-columns:repeat(4,1fr); } .forecast-item { min-width:0; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; background:#1b1923; color:#e8e1f8; padding:4px 2px; } .forecast-item span,.forecast-item small,.forecast-item em { color:#aca4c0; font-size:7px; font-weight:800; letter-spacing:.04em; } .forecast-item em { color:#b9cde7; font-style:normal; } .forecast-item i { color:#c8b6e6; font-style:normal; font-size:18px; line-height:1; } .forecast-item b { font-size:12px; } .forecast-empty { grid-column:1 / -1; align-self:center; color:#aaa0bb; font-size:9px; letter-spacing:.1em; text-align:center; }
-.feed-panel { --panel:var(--gold); } .feed { padding:7px 10px; color:#ebe4d7; font-family:"Arial Narrow","Roboto Condensed","Helvetica Neue Condensed",sans-serif; font-stretch:condensed; font-size:9px; font-weight:750; line-height:1.28; letter-spacing:.06em; } .feed-panel.fuel .feed { text-transform:uppercase; } .feed-panel.word .feed { text-transform:none; letter-spacing:.02em; font-weight:650; } .feed p { margin:0 0 3px; } .feed p:last-child { margin-bottom:0; }
-@media (max-width:620px) { .shell { grid-template-columns:58px minmax(0,1fr); gap:7px; padding:7px; } .rail-cap { height:52px; } .rail-nav span { min-height:20px; font-size:7px; } .rail-status { padding:4px 3px 4px 5px; } .rail-code { font-size:6px; padding:5px 2px; } .masthead { min-height:49px; grid-template-columns:1fr auto; gap:6px; } .masthead div:nth-child(2) { padding:6px 7px; border-left-width:6px; } h1 { font-size:13px; } .masthead small { font-size:7px; } .masthead time { font-size:8px; padding:7px; } .columns { gap:7px; } .left-column,.right-column { gap:7px; } .tab { min-height:20px; padding:5px 6px; font-size:7px; } .security-list,.cameras,.events,.forecast { padding:5px; gap:3px; } .security-row { padding:5px; font-size:7px; } .climate-body { grid-template-columns:1fr 1fr; grid-template-areas:"setpoint current" "controls controls"; padding:5px 6px; min-height:82px; gap:4px; } .climate-controls { grid-template-columns:36px 1fr 36px; gap:4px; } .climate-body strong { font-size:24px; } .current b { font-size:15px; } .adjust { height:32px; font-size:23px; } .conditions { padding:5px 6px; min-height:31px; } .conditions b { font-size:9px; } .forecast-item i { font-size:14px; } .forecast-item b { font-size:10px; } .feed { padding:5px 7px; font-size:8px; } .event { grid-template-columns:35px 1fr; font-size:8px; padding:4px; gap:4px; } }
+.shell { --bg:#06070b; --apricot:#eab18c; --salmon:#e48878; --lilac:#baadd8; --sky:#83bdd2; --gold:#d7bd67; --ink:#101117; --muted:#b8b0bc; background:var(--bg); display:flex; flex-direction:column; gap:8px; padding:10px; overflow:clip; color:#f6f0ea; }
+.top { display:grid; grid-template-columns:160px minmax(0,1fr); align-items:stretch; }
+.rail { display:flex; flex-direction:column; background:var(--apricot); border-radius:34px 0 0 0; min-width:0; }
+.rail-nav { display:flex; flex-direction:column; gap:4px; padding:10px 0 0; } .rail-nav span { display:flex; align-items:center; min-height:34px; padding:0 12px; background:var(--ink); color:#f4d9b4; font-size:10px; font-weight:950; letter-spacing:.16em; clip-path:polygon(0 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%); } .rail-nav span:nth-child(1){color:#b8e0ec;} .rail-nav span:nth-child(2){color:#d3c9f0;} .rail-nav span:nth-child(3){color:#f7b7a6;} .rail-nav span:nth-child(4){color:#ecd489;}
+.rail-readout { padding:16px 14px 0; } .rail-readout b { display:block; font-size:9px; letter-spacing:.22em; color:rgba(10,10,14,.55); font-weight:950; margin-bottom:10px; } .rail-row { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding:4px 0; border-bottom:1px solid rgba(10,10,14,.12); } .rail-row span { font-size:10px; letter-spacing:.06em; color:rgba(10,10,14,.6); font-weight:800; } .rail-row em { font-style:normal; font-size:10px; font-weight:950; color:rgba(10,10,14,.85); letter-spacing:.04em; } .rail-row em.warn { color:#7c1616; }
+.console { min-width:0; display:flex; flex-direction:column; }
+.masthead { display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--apricot); border-radius:0 34px 0 0; padding:8px 18px; min-height:66px; } .masthead-copy { min-width:0; } .masthead small { display:block; color:rgba(10,10,14,.55); font-size:9px; font-weight:900; letter-spacing:.2em; } .masthead h1 { margin:2px 0 0; color:#101117; font-size:20px; letter-spacing:.1em; line-height:1.05; } .masthead time { color:rgba(10,10,14,.72); font-size:12px; font-weight:950; letter-spacing:.08em; white-space:nowrap; }
+.columns { display:grid; grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr); gap:8px; padding:10px 10px 0; align-items:start; } .left-column,.right-column { min-width:0; display:flex; flex-direction:column; gap:8px; }
+.panel { min-width:0; background:var(--ink); overflow:hidden; } .tab { color:#09090e; font-weight:950; letter-spacing:.13em; font-size:10px; min-height:26px; padding:6px 10px 6px 0; display:flex; align-items:center; width:100%; clip-path:polygon(0 0,100% 0,100% 48%,calc(100% - 16px) 100%,0 100%); } .tab span { display:block; padding-left:12px; } .tab.sky { background:var(--sky); } .tab.apricot { background:var(--apricot); } .tab.salmon { background:var(--salmon); } .tab.lilac { background:var(--lilac); } .tab.gold { background:var(--gold); }
+.security-panel { --panel:var(--sky); } .security-list { display:grid; grid-template-columns:1fr 1fr; padding:7px; gap:4px; } .security-row { background:#181a22; padding:6px 8px; display:flex; justify-content:space-between; gap:4px; align-items:center; color:#d6e0e6; font-size:9.5px; font-weight:800; letter-spacing:.05em; } .security-row:last-child { grid-column:span 2; } .security-row b { color:var(--sky); font-size:8.5px; } .security-row.alert { background:#412227; color:#ffd6cd; } .security-row.alert b { color:#ff9c8d; }
+.cameras-panel { --panel:var(--sky); } .cameras { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:6px; } .camera { background:#15171e; min-width:0; min-height:0; aspect-ratio:16/9; overflow:hidden; position:relative; } .camera-stream { display:block; width:100%; height:100%; background:#0a0b0e; } .camera-frame { position:absolute; inset:0; display:grid; place-items:center; background:#0c0d11; } .camera-still { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.4; filter:grayscale(.4); } .camera-glyph { font-size:26px; color:rgba(234,177,140,.5); position:relative; } .camera-label { position:absolute; inset:auto 0 0; min-height:23px; padding:5px 6px; background:rgba(5,6,9,.78); display:flex; justify-content:space-between; align-items:center; color:#edf5f6; font-size:8.5px; font-weight:850; letter-spacing:.06em; pointer-events:none; } .camera-label b { color:var(--sky); font-size:8px; } .camera-offline .camera-label b { color:#ff9c8d; }
+.events { padding:6px 8px; display:flex; flex-direction:column; gap:4px; } .event { display:grid; grid-template-columns:45px 1fr; gap:7px; align-items:start; border-left:3px solid var(--apricot); padding:5px 6px; background:#19171b; color:#f7dfd3; font-size:10.5px; line-height:1.25; } .event time { color:var(--apricot); font-weight:900; font-size:8.5px; letter-spacing:.04em; padding-top:1px; } .event.past { opacity:.57; border-left-color:#75615a; } .event.empty { display:block; background:transparent; border-left-color:transparent; color:#8d857c; font-size:10px; padding:2px 6px; }
+.climate-panel { --panel:var(--salmon); } .climate-body { padding:9px 10px 8px; display:grid; grid-template-columns:1.1fr 1fr; grid-template-areas:"hero outside" "controls controls"; column-gap:10px; row-gap:8px; } .climate-hero { grid-area:hero; } .climate-hero small, .climate-outside small { display:block; color:var(--muted); font-size:8.5px; letter-spacing:.16em; font-weight:900; margin-bottom:3px; } .climate-hero strong { display:block; color:#ffe0d4; font-size:38px; line-height:.95; letter-spacing:-.04em; } .climate-hero em { display:block; font-style:normal; color:#e6a295; font-size:8.5px; font-weight:900; letter-spacing:.2em; margin-top:4px; } .climate-outside { grid-area:outside; align-self:center; padding-left:10px; border-left:1px solid rgba(244,136,120,.28); } .climate-outside b { display:inline-block; color:#f2d6cc; font-size:20px; margin-right:6px; line-height:1; } .climate-outside span { color:#c9b2b8; font-size:9px; font-weight:750; letter-spacing:.05em; text-transform:capitalize; } .climate-controls { grid-area:controls; display:grid; grid-template-columns:42px 1fr 42px; gap:6px; align-items:center; } .climate-setpoint { text-align:center; color:#e9c3b8; font-size:10px; font-weight:900; letter-spacing:.14em; background:#241a1d; border-radius:0 0 10px 0; padding:7px 0; } .adjust { height:32px; border:0; background:var(--salmon); color:#141014; font-size:24px; line-height:1; font-weight:700; cursor:pointer; } .adjust:first-child { border-radius:0 0 0 10px; } .adjust:last-child { border-radius:0 10px 0 0; } .adjust:disabled { background:#5c454b; color:#8c7f83; cursor:not-allowed; } .service-error { background:#4a2228; color:#ffd4cc; font-size:9px; padding:4px 9px; }
+.conditions-panel,.forecast-panel { --panel:var(--lilac); } .conditions { padding:8px 9px; min-height:58px; align-items:center; display:grid; grid-template-columns:repeat(3,1fr); gap:6px; } .conditions b { color:#e9e1fc; font-size:12px; } .conditions small { display:block; margin-top:2px; color:#aba2c1; letter-spacing:.05em; font-size:7.5px; font-weight:900; } .forecast-panel { display:flex; flex-direction:column; } .forecast { padding:6px 8px; display:grid; grid-template-columns:repeat(5,1fr); gap:4px; } .daily .forecast { grid-template-columns:repeat(4,1fr); } .forecast-item { min-width:0; min-height:60px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; background:#1b1923; color:#e8e1f8; padding:4px 2px; } .forecast-item span,.forecast-item small,.forecast-item em { color:#a79ec2; font-size:8px; font-weight:850; letter-spacing:.04em; } .forecast-item span { font-size:8.5px; } .forecast-item em { color:#b9cde7; font-style:normal; } .forecast-item i { color:#c8b6e6; font-style:normal; font-size:19px; line-height:1; } .forecast-item b { font-size:13px; } .forecast-empty { grid-column:1 / -1; color:#8d857c; font-size:10px; letter-spacing:.04em; text-align:center; padding:4px 6px; }
+.feed-panel { --panel:var(--gold); } .feed { padding:8px 10px; color:#eae1d2; font-family:"Arial Narrow","Roboto Condensed","Helvetica Neue Condensed",sans-serif; font-stretch:condensed; font-size:12px; font-weight:600; line-height:1.45; letter-spacing:.03em; text-transform:none; } .feed p { margin:0 0 3px; } .feed p:last-child { margin-bottom:0; } .feed-panel.word .feed { font-weight:550; }
+.footer { display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--apricot); border-radius:0 0 34px 34px; min-height:38px; padding:0 16px; color:rgba(10,10,14,.62); font-size:9px; font-weight:950; letter-spacing:.2em; } .footer .footer-code { color:rgba(10,10,14,.85); }
+@media (max-width:620px) { .shell { padding:7px; gap:6px; } .top { grid-template-columns:64px minmax(0,1fr); } .rail { border-radius:22px 0 0 0; } .rail-nav { gap:3px; padding-top:6px; } .rail-nav span { min-height:24px; padding:0 8px; font-size:7px; letter-spacing:.06em; } .rail-readout { display:none; } .masthead { min-height:46px; padding:6px 10px; border-radius:0 22px 0 0; } .masthead h1 { font-size:13px; } .masthead small { font-size:7px; } .masthead time { font-size:9px; } .columns { grid-template-columns:1fr; padding:6px; } .footer { border-radius:0 0 22px 22px; min-height:30px; font-size:7px; } }
 `;
 
 if (!customElements.get("lcars-home-panel")) {

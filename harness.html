@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html,body { margin:0; padding:0; background:#000; width:768px; height:1024px; overflow:hidden; }
+</style>
+</head>
+<body>
+  <lcars-home-panel id="panel"></lcars-home-panel>
+  <script type="module">
+    import "./src/lcars-home-panel.js";
+
+    const el = document.getElementById("panel");
+    const STUB = {
+      "camera.front_door_camera": { entity_id: "camera.front_door_camera", state: "streaming", attributes: { entity_picture: "/frame.png" } },
+      "camera.back_entrance_camera": { entity_id: "camera.back_entrance_camera", state: "unavailable", attributes: { entity_picture: "/media/fake-backdoor.jpg" } },
+      "binary_sensor.alarm_panel_konnected_frontdoor": { entity_id: "binary_sensor.alarm_panel_konnected_frontdoor", state: "off", attributes: {} },
+      "binary_sensor.alarm_panel_konnected_backdoor": { entity_id: "binary_sensor.alarm_panel_konnected_backdoor", state: "off", attributes: {} },
+      "binary_sensor.alarm_panel_konnected_mainflrwindows": { entity_id: "binary_sensor.alarm_panel_konnected_mainflrwindows", state: "off", attributes: {} },
+      "climate.family_room_thermostat": { entity_id: "climate.family_room_thermostat", state: "heat", attributes: { temperature: 25.6, current_temperature: 24.2, min_temp: 7, max_temp: 35 } },
+      "weather.forecast_home": { entity_id: "weather.forecast_home", state: "partlycloudy", attributes: { temperature: 22, humidity: 58, wind_speed: 12, pressure: 1012 } },
+      "sensor.word_of_day": { entity_id: "sensor.word_of_day", state: "Peripeteia\nA sudden reversal of fortune", attributes: {} },
+      "sensor.fuel_price": { entity_id: "sensor.fuel_price", state: "153.9¢/L\nBest price in 24 hours", attributes: {} },
+    };
+
+    const hourly = [];
+    for (let h = 0; h < 8; h++) {
+      const dt = new Date();
+      dt.setMinutes(0, 0, 0);
+      dt.setHours(dt.getHours() + h);
+      hourly.push({ datetime: dt.toISOString(), temperature: 20 + (h % 5), condition: ["partlycloudy", "sunny", "cloudy", "rainy"][h % 4], precipitation: h % 3 === 0 ? 0 : 1.2 });
+    }
+    const daily = [];
+    for (let d = 0; d < 7; d++) {
+      const dt = new Date();
+      dt.setHours(12, 0, 0, 0);
+      dt.setDate(dt.getDate() + d);
+      daily.push({ datetime: dt.toISOString(), temperature: 21 + d, templow: 13 + (d % 4), condition: ["sunny", "cloudy", "rainy", "partlycloudy"][d % 4], precipitation: d % 2 === 0 ? 0 : 2.4 });
+    }
+
+    const connection = {
+      subscribeMessage: (callback, message) => {
+        const type = message?.forecast_type;
+        setTimeout(() => callback({ forecast: type === "hourly" ? hourly : daily }), 50);
+        return Promise.resolve(() => {});
+      },
+    };
+
+    const hass = {
+      states: STUB,
+      config: { time_zone: "America/Toronto" },
+      connection,
+      hassUrl: (path) => path,
+      callApi: () => Promise.resolve([]),
+      callService: () => Promise.resolve(),
+    };
+
+    el.setConfig({
+      entities: {
+        climate: "climate.family_room_thermostat",
+        weather: "weather.forecast_home",
+        front_door: "binary_sensor.alarm_panel_konnected_frontdoor",
+        back_door: "binary_sensor.alarm_panel_konnected_backdoor",
+        windows: "binary_sensor.alarm_panel_konnected_mainflrwindows",
+        front_camera: "camera.front_door_camera",
+        back_camera: "camera.back_entrance_camera",
+        word: "sensor.word_of_day",
+        fuel: "sensor.fuel_price",
+      },
+    });
+    el.hass = hass;
+  </script>
+</body>
+</html>
