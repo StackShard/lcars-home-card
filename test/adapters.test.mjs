@@ -22,9 +22,13 @@ test("normalizeSecurity reserves alert status for actual open states", () => {
 });
 
 test("nextTemperature clamps, respects step, and handles missing values", () => {
-  assert.equal(nextTemperature(21, 1, { min_temp: 7, max_temp: 35, target_temp_step: 0.5 }), 21.5);
-  assert.equal(nextTemperature(35, 1, { min_temp: 7, max_temp: 35, target_temp_step: 0.5 }), 35);
+  assert.equal(nextTemperature(20.5, 1, { min_temp: 10, max_temp: 21, target_temp_step: 0.5 }), 21);
+  assert.equal(nextTemperature(10, -1, { min_temp: 10, max_temp: 30, target_temp_step: 0.5 }), 10);
   assert.equal(nextTemperature(undefined, -1, { min_temp: 7, max_temp: 35, target_temp_step: 1 }), 20);
+});
+
+test("nextTemperature infers tenth-degree control for a decimal setpoint when HA omits a step", () => {
+  assert.equal(nextTemperature(26.4, -1, { min_temp: 10, max_temp: 32, target_temp_step: null }), 26.3);
 });
 
 test("visibleForecast filters malformed entries and caps a dense iPad strip", () => {

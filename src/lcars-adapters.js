@@ -17,10 +17,14 @@ export function normalizeSecurity(state) {
 }
 
 export function nextTemperature(current, direction, attributes = {}) {
-  const min = Number.isFinite(Number(attributes.min_temp)) ? Number(attributes.min_temp) : 7;
-  const max = Number.isFinite(Number(attributes.max_temp)) ? Number(attributes.max_temp) : 35;
-  const step = Number.isFinite(Number(attributes.target_temp_step)) ? Number(attributes.target_temp_step) : 0.5;
-  const base = Number.isFinite(Number(current)) ? Number(current) : (min + max) / 2;
+  const numeric = (value) => value !== null && value !== "" && Number.isFinite(Number(value));
+  const min = numeric(attributes.min_temp) ? Number(attributes.min_temp) : 7;
+  const max = numeric(attributes.max_temp) ? Number(attributes.max_temp) : 35;
+  const currentValue = numeric(current) ? Number(current) : null;
+  const statedStep = numeric(attributes.target_temp_step) ? Number(attributes.target_temp_step) : null;
+  const inferredStep = currentValue !== null && !Number.isInteger(currentValue) ? 0.1 : 0.5;
+  const step = statedStep && statedStep > 0 ? statedStep : inferredStep;
+  const base = currentValue ?? (min + max) / 2;
   const shifted = base + (direction * step);
   const clamped = Math.min(max, Math.max(min, shifted));
   return Math.round((clamped + Number.EPSILON) / step) * step;

@@ -8,7 +8,7 @@ import {
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
 
 const DEFAULTS = {
