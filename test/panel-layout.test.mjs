@@ -41,6 +41,18 @@ test("type scale is raised across tabs, feeds, and panels", () => {
   assert.match(source, /\.event \{[\s\S]*?font-size:11\.5px/);
 });
 
+test("lights-on section sits under current conditions as its own panel", () => {
+  const conditions = source.indexOf("CURRENT CONDITIONS");
+  const lightsIndex = source.indexOf("<article class=\"panel lights-panel\"><div class=\"tab mint\"><span>LIGHTS ON</span></div>");
+  assert.ok(conditions > 0 && lightsIndex > conditions);
+  assert.match(source, /const lights = lightsOn\(this\._hass\?\.states\)/);
+  assert.match(source, /No lights are on right now\./);
+  assert.match(source, /\.tab\.mint \{ background:var\(--mint\)/);
+  assert.match(source, /\.light-chip \{[^}]*background:#181d19/);
+  assert.match(source, /\.light-chip b \{[^}]*background:var\(--mint\)/);
+  assert.match(source, /\.light-chip span \{[^}]*font-size:11px/);
+});
+
 test("header spans full width flush against the rail with the date inline", () => {
   assert.match(source, /<header class="masthead">/);
   assert.match(source, /\.masthead \{ [^}]*background:var\(--apricot\)/);

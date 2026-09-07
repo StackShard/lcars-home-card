@@ -39,6 +39,13 @@ export function cameraOfflineMarkup(name, entity, state, stillUrl) {
   return `<div class="camera camera-offline"><div class="camera-frame">${picture}<span class="camera-glyph" aria-hidden="true">&#9680;</span></div><div class="camera-label"><span>${escapeAttribute(label)}</span><b>OFFLINE</b></div></div>`;
 }
 
+export function lightsOn(states) {
+  return Object.values(states ?? {})
+    .filter((entity) => entity?.entity_id?.startsWith("light.") && entity.state === "on")
+    .map((entity) => ({ id: entity.entity_id, name: entity.attributes?.friendly_name ?? entity.entity_id }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base" }));
+}
+
 export function nextTemperature(current, direction, attributes = {}) {
   const numeric = (value) => value !== null && value !== "" && Number.isFinite(Number(value));
   const min = numeric(attributes.min_temp) ? Number(attributes.min_temp) : 7;

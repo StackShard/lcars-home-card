@@ -10,6 +10,7 @@ import {
   formatPrecipitation,
   formatTime,
   hvacLabel,
+  lightsOn,
   nextTemperature,
   normalizeSecurity,
   visibleForecast,
@@ -30,6 +31,30 @@ test("normalizeSecurity reserves alert status for actual open states", () => {
   assert.deepEqual(normalizeSecurity("off"), { label: "SECURE", alert: false });
   assert.deepEqual(normalizeSecurity("on"), { label: "OPEN", alert: true });
   assert.deepEqual(normalizeSecurity("unavailable"), { label: "UNAVAILABLE", alert: false });
+});
+
+test("lightsOn lists only light-domain entities that are on, sorted by name", () => {
+  const states = {
+    "light.dining_room_lightstrip": { entity_id: "light.dining_room_lightstrip", state: "on", attributes: { friendly_name: "Dining Room Lightstrip" } },
+    "light.kitchen_under_cabinet_light": { entity_id: "light.kitchen_under_cabinet_light", state: "on", attributes: { friendly_name: "Kitchen Under Cabinet Light" } },
+    "light.living_room_main_lights": { entity_id: "light.living_room_main_lights", state: "off", attributes: { friendly_name: "Living Room Main Lights" } },
+    "light.back_entrance_light": { entity_id: "light.back_entrance_light", state: "unavailable", attributes: { friendly_name: "Back Entrance Light" } },
+    "switch.dining_room_lightstrip": { entity_id: "switch.dining_room_lightstrip", state: "on", attributes: { friendly_name: "Dining Room Lightstrip" } },
+    "sensor.word_of_day": { entity_id: "sensor.word_of_day", state: "on", attributes: {} },
+  };
+  assert.deepEqual(lightsOn(states), [
+    { id: "light.dining_room_lightstrip", name: "Dining Room Lightstrip" },
+    { id: "light.kitchen_under_cabinet_light", name: "Kitchen Under Cabinet Light" },
+  ]);
+});
+
+test("lightsOn returns an empty list when nothing is on, and tolerates missing state maps", () => {
+  const allOff = {
+    "light.dining_room_lightstrip": { entity_id: "light.dining_room_lightstrip", state: "off", attributes: {} },
+  };
+  assert.deepEqual(lightsOn(allOff), []);
+  assert.deepEqual(lightsOn(undefined), []);
+  assert.deepEqual(lightsOn({}), []);
 });
 
 test("cameraStreamMarkup uses HA's native stream surface without proxy token markup", () => {
