@@ -20,6 +20,7 @@ test("calendar is content-sized while weather claims the reclaimed right-column 
 
 test("the camera pair consumes its intentional left-column field", () => {
   assert.match(source, /\.left-column \.cameras-panel \{ flex:1; min-height:0; \}/);
+  assert.match(source, /\.cameras-panel \{[^}]*display:flex[^}]*flex-direction:column/);
   assert.match(source, /\.cameras \{[^}]*grid-template-rows:minmax\(0,1fr\)/);
   assert.match(source, /\.camera \{[^}]*height:100%/);
 });
