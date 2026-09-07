@@ -1,12 +1,13 @@
 const EMPTY_STATES = new Set(["", "unknown", "unavailable", "none", null, undefined]);
 
-export function formatFeed(value, fallback) {
+export function formatFeed(value, fallback, { uppercase = true } = {}) {
   const source = EMPTY_STATES.has(value) || typeof value !== "string" ? fallback : value;
+  const normalizeCase = (line) => uppercase ? line.toUpperCase() : line;
   const lines = source
     .split(/\r?\n/)
-    .map((line) => line.replace(/^\s*[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F]+\s*/gu, "").trim().toUpperCase())
+    .map((line) => normalizeCase(line.replace(/^\s*[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F]+\s*/gu, "").trim()))
     .filter(Boolean);
-  return lines.length ? lines : [String(fallback).toUpperCase()];
+  return lines.length ? lines : [normalizeCase(String(fallback))];
 }
 
 export function normalizeSecurity(state) {

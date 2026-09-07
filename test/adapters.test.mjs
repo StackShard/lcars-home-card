@@ -11,9 +11,13 @@ import {
   visibleForecast,
 } from "../src/lcars-adapters.js";
 
-test("formatFeed removes decorative emoji and normalizes dashboard feed copy", () => {
+test("formatFeed preserves readable sentence case when uppercase is disabled", () => {
+  assert.deepEqual(formatFeed("📖 Peripeteia\nA sudden turn", "fallback", { uppercase: false }), ["Peripeteia", "A sudden turn"]);
+  assert.deepEqual(formatFeed("unavailable", "Word unavailable.", { uppercase: false }), ["Word unavailable."]);
+});
+
+test("formatFeed removes decorative emoji and uppercases compact status feeds", () => {
   assert.deepEqual(formatFeed("⛽ Fuel 153.9¢/L\nUpdate nightly", "fallback"), ["FUEL 153.9¢/L", "UPDATE NIGHTLY"]);
-  assert.deepEqual(formatFeed("📖 Peripeteia\nA sudden turn", "fallback"), ["PERIPETEIA", "A SUDDEN TURN"]);
   assert.deepEqual(formatFeed("unavailable", "fallback"), ["FALLBACK"]);
   assert.deepEqual(formatFeed("", "fallback"), ["FALLBACK"]);
 });
