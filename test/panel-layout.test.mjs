@@ -58,8 +58,8 @@ test("cinnamoroll theme: pastel palette, rounded panels, mascot, lcars default u
   assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \{ [^}]*--apricot:#a9d8ef/);
   assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \{ [^}]*--bg:#fbf6ef/);
   assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \.panel \{ [^}]*border-radius:14px/);
-  assert.match(source, /const MASCOT_CINNAMOROLL = `[\s\S]*?<svg class="mascot"/);
-  assert.match(source, /\.mascot \{ position:absolute; right:20px; bottom:58px/);
+  assert.match(source, /const MASCOT_CINNAMOROLL = `<img class="mascot" src="https:\/\/cdn\.jsdelivr\.net\/gh\/StackShard\/lcars-home-card@v\$\{VERSION\}\/assets\/cinnamoroll\.png"/);
+  assert.match(source, /\.mascot \{ position:absolute; right:16px; bottom:58px; width:215px/);
   assert.match(source, /\$\{this\._config\?\.theme === "cinnamoroll" \? MASCOT_CINNAMOROLL : ""\}/);
   assert.match(source, /\.shell \{ [^}]*--bg:#06070b/);
 });

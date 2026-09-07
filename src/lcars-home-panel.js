@@ -15,7 +15,7 @@ import {
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.12";
+const VERSION = "0.1.13";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
 const CAMERA_FAILED = new Set(["unknown", "unavailable", "none", "", "off", "unavailable"]);
 
@@ -36,31 +36,7 @@ const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
 }[character]));
 
-const MASCOT_CINNAMOROLL = `
-<svg class="mascot" viewBox="0 0 260 240" aria-hidden="true">
-  <ellipse cx="70" cy="56" rx="17" ry="40" fill="#ffffff" stroke="#d9edf8" stroke-width="2" transform="rotate(-13 70 56)"/>
-  <ellipse cx="70" cy="56" rx="7" ry="24" fill="#b7dff3" transform="rotate(-13 70 56)"/>
-  <ellipse cx="190" cy="56" rx="17" ry="40" fill="#ffffff" stroke="#d9edf8" stroke-width="2" transform="rotate(13 190 56)"/>
-  <ellipse cx="190" cy="56" rx="7" ry="24" fill="#b7dff3" transform="rotate(13 190 56)"/>
-  <ellipse cx="130" cy="128" rx="66" ry="60" fill="#ffffff" stroke="#d9edf8" stroke-width="2.5"/>
-  <ellipse cx="103" cy="127" rx="10" ry="13" fill="#6da7dd"/>
-  <circle cx="99.5" cy="121" r="3.4" fill="#ffffff"/>
-  <ellipse cx="157" cy="127" rx="10" ry="13" fill="#6da7dd"/>
-  <circle cx="153.5" cy="121" r="3.4" fill="#ffffff"/>
-  <path d="M119 149 q6 7 12 0" stroke="#4a6fa5" stroke-width="3" fill="none" stroke-linecap="round"/>
-  <ellipse cx="80" cy="150" rx="9" ry="5.5" fill="#ffc6d5" opacity=".9"/>
-  <ellipse cx="180" cy="150" rx="9" ry="5.5" fill="#ffc6d5" opacity=".9"/>
-  <circle cx="72" cy="133" r="2" fill="#c4d9ec"/>
-  <circle cx="72" cy="143" r="2" fill="#c4d9ec"/>
-  <circle cx="72" cy="153" r="2" fill="#c4d9ec"/>
-  <circle cx="188" cy="133" r="2" fill="#c4d9ec"/>
-  <circle cx="188" cy="143" r="2" fill="#c4d9ec"/>
-  <circle cx="188" cy="153" r="2" fill="#c4d9ec"/>
-  <path d="M56 34 l2.4 6.2 6.2 2.4 -6.2 2.4 -2.4 6.2 -2.4 -6.2 -6.2 -2.4 6.2 -2.4z" fill="#ffd9c2"/>
-  <path d="M214 96 l2 5.2 5.2 2 -5.2 2 -2 5.2 -2 -5.2 -5.2 -2 5.2 -2z" fill="#ffe1a8"/>
-  <path d="M36 158 l1.8 4.6 4.6 1.8 -4.6 1.8 -1.8 4.6 -1.8 -4.6 -4.6 -1.8 4.6 -1.8z" fill="#ffc6d5"/>
-  <path d="M222 150 c-5.5-5.5-13-1.2-13 4.6 0 6 13 11 13 11 s13-5 13-11 c0-5.8-7.5-10.1-13-4.6z" fill="#ffb7c8"/>
-</svg>`;
+const MASCOT_CINNAMOROLL = `<img class="mascot" src="https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v${VERSION}/assets/cinnamoroll.png" alt="Cinnamoroll keeps watch over the house" />`;
 
 function localDateParts(timeZone, date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -326,7 +302,7 @@ const STYLE = `
 .shell[data-theme="cinnamoroll"] .panel { border:1px solid var(--panel-line); border-radius:14px; }
 .shell[data-theme="cinnamoroll"] .tab { border-radius:14px 0 0 0; }
 .shell[data-theme="cinnamoroll"] .camera, .shell[data-theme="cinnamoroll"] .camera-frame { border-radius:0 0 12px 12px; }
-.mascot { position:absolute; right:20px; bottom:58px; width:185px; pointer-events:none; z-index:1; filter:drop-shadow(0 6px 16px rgba(146,178,205,.35)); opacity:.96; }
+.mascot { position:absolute; right:16px; bottom:58px; width:215px; height:auto; pointer-events:none; z-index:1; }
 .top { flex:1; min-height:0; display:grid; grid-template-columns:28px minmax(0,1fr); align-items:stretch; }
 .rail { background:var(--apricot); border-radius:22px 0 0 0; min-width:0; }
 .console { min-width:0; display:flex; flex-direction:column; }
