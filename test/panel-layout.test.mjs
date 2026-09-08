@@ -53,14 +53,20 @@ test("lights-on section sits under the climate and Outside row as its own panel"
   assert.match(source, /\.light-chip span \{[^}]*font-size:11px/);
 });
 
-test("cinnamoroll theme: pastel palette, rounded panels, mascot, lcars default untouched", () => {
-  assert.match(source, /data-theme="\$\{this\._config\?\.theme === "cinnamoroll" \? "cinnamoroll" : "lcars"\}"/);
+test("cinnamoroll themes share rounded character styling while preserving light, dark, and LCARS palettes", () => {
+  assert.match(source, /const SUPPORTED_THEMES = new Set\(\["lcars", "cinnamoroll", "cinnamoroll-dark"\]\)/);
+  assert.match(source, /const theme = SUPPORTED_THEMES\.has\(this\._config\?\.theme\) \? this\._config\.theme : "lcars"/);
+  assert.match(source, /const isCinnamoroll = theme\.startsWith\("cinnamoroll"\)/);
+  assert.match(source, /data-theme="\$\{theme\}"/);
   assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \{ [^}]*--apricot:#a9d8ef/);
   assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \{ [^}]*--bg:#fbf6ef/);
-  assert.match(source, /\.shell\[data-theme="cinnamoroll"\] \.panel \{ [^}]*border-radius:14px/);
+  assert.match(source, /\.shell\[data-theme="cinnamoroll-dark"\] \{ [^}]*--bg:#0b1421/);
+  assert.match(source, /\.shell\[data-theme="cinnamoroll-dark"\] \{ [^}]*--panel-bg:#111d2d/);
+  assert.match(source, /\.shell\[data-theme="cinnamoroll-dark"\] \{ [^}]*--text:#edf7ff/);
+  assert.match(source, /\.shell\[data-theme="cinnamoroll"\], \.shell\[data-theme="cinnamoroll-dark"\]/);
   assert.match(source, /const MASCOT_CINNAMOROLL = `<img class="mascot" src="https:\/\/cdn\.jsdelivr\.net\/gh\/StackShard\/lcars-home-card@v\$\{VERSION\}\/assets\/cinnamoroll\.png"/);
   assert.match(source, /\.mascot \{ position:absolute; right:16px; bottom:58px; width:128px/);
-  assert.match(source, /\$\{this\._config\?\.theme === "cinnamoroll" \? MASCOT_CINNAMOROLL : ""\}/);
+  assert.match(source, /\$\{isCinnamoroll \? MASCOT_CINNAMOROLL : ""\}/);
   assert.match(source, /\.shell \{ [^}]*--bg:#06070b/);
 });
 

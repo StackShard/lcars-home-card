@@ -15,9 +15,10 @@ import {
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.17";
+const VERSION = "0.1.18";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
 const CAMERA_FAILED = new Set(["unknown", "unavailable", "none", "", "off", "unavailable"]);
+const SUPPORTED_THEMES = new Set(["lcars", "cinnamoroll", "cinnamoroll-dark"]);
 
 const DEFAULTS = {
   climate: "climate.home",
@@ -280,6 +281,8 @@ export class LcarsHomePanel extends HTMLElement {
       this.shadowRoot.innerHTML = `<style>${STYLE}</style><div class="loading">LCARS LINK ESTABLISHING</div>`;
       return;
     }
+    const theme = SUPPORTED_THEMES.has(this._config?.theme) ? this._config.theme : "lcars";
+    const isCinnamoroll = theme.startsWith("cinnamoroll");
     const e = this._config.entities;
     const tz = this._hass.config?.time_zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     const weather = this._state(e.weather);
@@ -336,7 +339,7 @@ export class LcarsHomePanel extends HTMLElement {
 
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
-      <main class="shell" aria-label="LCARS household dashboard" data-version="${VERSION}" data-theme="${this._config?.theme === "cinnamoroll" ? "cinnamoroll" : "lcars"}">
+      <main class="shell" aria-label="LCARS household dashboard" data-version="${VERSION}" data-theme="${theme}">
         <div class="top">
           <aside class="rail" aria-hidden="true"></aside>
           <section class="console">
@@ -374,7 +377,7 @@ export class LcarsHomePanel extends HTMLElement {
         </div>
         <div class="camera-overlay ${this._expandedCamera ? "open" : ""}" data-camera-overlay aria-hidden="${this._expandedCamera ? "false" : "true"}"><div class="camera-expanded-mount" data-camera-expanded></div></div>
         <footer class="footer"><span>ALL SYSTEMS NOMINAL</span><span class="footer-code">LCARS HOME · ${VERSION}</span></footer>
-        ${this._config?.theme === "cinnamoroll" ? MASCOT_CINNAMOROLL : ""}
+        ${isCinnamoroll ? MASCOT_CINNAMOROLL : ""}
       </main>`;
     this._mountCameras(this.shadowRoot.querySelector("[data-cameras]"));
     this.shadowRoot.querySelectorAll("ha-camera-stream[data-camera]").forEach((stream) => {
@@ -390,9 +393,13 @@ const STYLE = `
 * { box-sizing:border-box; } .loading { min-height:100vh; display:grid; place-items:center; background:#06070b; color:#e9b4a4; letter-spacing:.18em; font-weight:700; }
 .shell { --bg:#06070b; --apricot:#eab18c; --salmon:#e48878; --lilac:#baadd8; --sky:#83bdd2; --gold:#d7bd67; --mint:#8ed0a6; --ink:#101117; --muted:#b8b0bc; --panel-bg:#101117; --row:#181a22; --row-2:#241a1d; --text:#e8e3db; --text-2:#9a91a3; --on-header:#101117; --on-header-soft:rgba(10,10,14,.55); --on-header-dim:rgba(10,10,14,.72); --on-tab:#09090e; --sky-ink:#83bdd2; --salmon-ink:#e6a295; --apricot-ink:#eab18c; --lilac-ink:#c8b6e6; --mint-ink:#8ed0a6; --fc-ink:#b9cde7; --cam-glyph:rgba(234,177,140,.5); --event-past-line:#75615a; --panel-line:transparent; background:var(--bg); display:flex; flex-direction:column; min-height:100vh; padding:10px 10px 0; overflow:clip; color:var(--text); position:relative; }
 .shell[data-theme="cinnamoroll"] { --bg:#fbf6ef; --apricot:#a9d8ef; --salmon:#ffc2cf; --lilac:#c9d6f0; --sky:#b7e0f5; --gold:#ffdf9e; --mint:#b2e6cf; --ink:#3d4c5f; --muted:#6f8298; --panel-bg:#ffffff; --row:#f2f8fc; --row-2:#eaf3f9; --text:#3d4c5f; --text-2:#6f8298; --on-header:#26506d; --on-header-soft:rgba(38,80,109,.62); --on-header-dim:rgba(38,80,109,.8); --on-tab:#1f4560; --sky-ink:#2e7fb2; --salmon-ink:#b15870; --apricot-ink:#3f7fa8; --lilac-ink:#8296d8; --mint-ink:#3fae7d; --fc-ink:#5f9cc4; --cam-glyph:rgba(255,175,195,.7); --event-past-line:#c6d5e2; --panel-line:#e6eef6; }
-.shell[data-theme="cinnamoroll"] .panel { border:1px solid var(--panel-line); border-radius:14px; }
-.shell[data-theme="cinnamoroll"] .tab { border-radius:14px 0 0 0; }
-.shell[data-theme="cinnamoroll"] .camera, .shell[data-theme="cinnamoroll"] .camera-frame { border-radius:0 0 12px 12px; }
+.shell[data-theme="cinnamoroll-dark"] { --bg:#0b1421; --apricot:#78b7d8; --salmon:#d891ab; --lilac:#8e99c5; --sky:#76b8d9; --gold:#c9a96e; --mint:#74b99d; --ink:#0b1824; --muted:#a4bad0; --panel-bg:#111d2d; --row:#18283b; --row-2:#21354b; --text:#edf7ff; --text-2:#a4bad0; --on-header:#0b2131; --on-header-soft:rgba(11,33,49,.62); --on-header-dim:rgba(11,33,49,.82); --on-tab:#0b1c2a; --sky-ink:#8ed8f5; --salmon-ink:#ffb5c7; --apricot-ink:#8ed8f5; --lilac-ink:#c3caff; --mint-ink:#96e2c0; --fc-ink:#a9d8f1; --cam-glyph:rgba(183,224,245,.75); --event-past-line:#47627d; --panel-line:#2b4057; }
+.shell[data-theme="cinnamoroll"], .shell[data-theme="cinnamoroll-dark"] { --character-theme:1; }
+.shell[data-theme="cinnamoroll"] .panel, .shell[data-theme="cinnamoroll-dark"] .panel { border:1px solid var(--panel-line); border-radius:14px; }
+.shell[data-theme="cinnamoroll"] .tab, .shell[data-theme="cinnamoroll-dark"] .tab { border-radius:14px 0 0 0; }
+.shell[data-theme="cinnamoroll"] .camera, .shell[data-theme="cinnamoroll"] .camera-frame, .shell[data-theme="cinnamoroll-dark"] .camera, .shell[data-theme="cinnamoroll-dark"] .camera-frame { border-radius:0 0 12px 12px; }
+.shell[data-theme="cinnamoroll-dark"] .panel { box-shadow:0 8px 24px rgba(0,0,0,.18); }
+.shell[data-theme="cinnamoroll-dark"] .mascot { filter:drop-shadow(0 0 12px rgba(126,200,230,.35)); }
 .mascot { position:absolute; right:16px; bottom:58px; width:128px; height:auto; pointer-events:none; z-index:1; }
 .top { flex:1; min-height:0; display:grid; grid-template-columns:28px minmax(0,1fr); align-items:stretch; }
 .rail { background:var(--apricot); border-radius:22px 0 0 0; min-width:0; }
