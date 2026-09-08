@@ -58,9 +58,9 @@ test("lightsOn returns an empty list when nothing is on, and tolerates missing s
   assert.deepEqual(lightsOn({}), []);
 });
 
-test("cameraStreamMarkup makes the native stream tile tappable without proxy token markup", () => {
+test("cameraStreamMarkup makes the HLS player tile tappable without proxy token markup", () => {
   const markup = cameraStreamMarkup("Front Door", "camera.front_door_camera", "streaming");
-  assert.match(markup, /<ha-camera-stream/);
+  assert.match(markup, /<ha-hls-player/);
   assert.match(markup, /data-camera="camera\.front_door_camera"/);
   assert.match(markup, /data-camera-tile="camera\.front_door_camera"/);
   assert.match(markup, /role="button"/);
@@ -76,7 +76,7 @@ test("cameraOfflineMarkup renders a placeholder glyph with last-good frame, neve
   assert.match(markup, /class="camera-glyph"/);
   assert.match(markup, /camera-still/);
   assert.match(markup, /OFFLINE/);
-  assert.doesNotMatch(markup, /<ha-camera-stream/);
+  assert.doesNotMatch(markup, /<ha-hls-player/);
   const noFrame = cameraOfflineMarkup("Back Door", "camera.back_door", "off", "");
   assert.doesNotMatch(noFrame, /camera-still/);
   assert.match(noFrame, /camera-glyph/);

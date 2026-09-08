@@ -15,7 +15,7 @@ import {
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.18";
+const VERSION = "0.1.19";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
 const CAMERA_FAILED = new Set(["unknown", "unavailable", "none", "", "off", "unavailable"]);
 const SUPPORTED_THEMES = new Set(["lcars", "cinnamoroll", "cinnamoroll-dark"]);
@@ -123,7 +123,7 @@ export class LcarsHomePanel extends HTMLElement {
     this._expandedCamera = null;
     this._pressureTrendKey = null;
     this._resetSubscriptions();
-    this._render();
+    this._buildShell();
   }
 
   set hass(hass) {
@@ -131,11 +131,12 @@ export class LcarsHomePanel extends HTMLElement {
     this._ensureForecastSubscriptions();
     this._ensureCalendar();
     this._ensurePressureTrend();
-    this._render();
+    this._updatePanels();
   }
 
   connectedCallback() {
-    this._render();
+    if (!this._config) return;
+    this._buildShell();
   }
 
   disconnectedCallback() {
@@ -170,13 +171,13 @@ export class LcarsHomePanel extends HTMLElement {
           const forecast = Array.isArray(event?.forecast) ? event.forecast : [];
           if (forecastType === "hourly") this._hourly = forecast;
           else this._daily = forecast;
-          this._render();
+          this._updatePanels();
         },
         { type: "weather/subscribe_forecast", forecast_type: forecastType, entity_id: weather },
       )).then((unsubscribe) => this._unsubscribers.push(unsubscribe)).catch(() => {
         if (forecastType === "hourly") this._hourly = [];
         else this._daily = [];
-        this._render();
+        this._updatePanels();
       });
     }
   }
@@ -193,11 +194,11 @@ export class LcarsHomePanel extends HTMLElement {
     this._hass.callApi("GET", `calendars/${encodeURIComponent(calendar)}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`)
       .then((events) => {
         this._calendar = Array.isArray(events) ? events.sort((a, b) => String(a.start?.dateTime ?? a.start?.date).localeCompare(String(b.start?.dateTime ?? b.start?.date))) : [];
-        this._render();
+        this._updatePanels();
       })
       .catch(() => {
         this._calendarError = "Calendar unavailable.";
-        this._render();
+        this._updatePanels();
       });
   }
 
@@ -213,19 +214,40 @@ export class LcarsHomePanel extends HTMLElement {
       .then((history) => {
         if (this._pressureTrendKey !== key) return;
         this._pressureTrend = pressureTrend(currentPressure, history);
-        this._render();
+        this._updatePanels();
       })
       .catch(() => {
         if (this._pressureTrendKey !== key) return;
         this._pressureTrend = { direction: "unknown", arrow: "", delta: null };
-        this._render();
+        this._updatePanels();
       });
   }
 
   _toggleCameraZoom(entity) {
     if (!entity) return;
     this._expandedCamera = this._expandedCamera === entity ? null : entity;
-    this._render();
+    this._mountCameras(this.shadowRoot.querySelector("[data-cameras]"));
+  }
+
+  _syncCameraClasses() {
+    const tiles = this.shadowRoot.querySelectorAll("[data-camera-tile]");
+    tiles.forEach((tile) => {
+      const expanded = this._expandedCamera === tile.dataset.cameraTile;
+      tile.classList.toggle("camera-expanded", expanded);
+      tile.setAttribute("aria-expanded", String(expanded));
+    });
+    const overlay = this.shadowRoot.querySelector("[data-camera-overlay]");
+    if (overlay) {
+      overlay.classList.toggle("open", Boolean(this._expandedCamera));
+      overlay.setAttribute("aria-hidden", String(!this._expandedCamera));
+    }
+  }
+
+  _pushCameraProps() {
+    this.shadowRoot.querySelectorAll("ha-hls-player[data-camera]").forEach((player) => {
+      player.hass = this._hass;                 // hass FIRST: ha-hls-player fetches its
+      player.entityid = player.dataset.camera;  // URL on entityid change and needs hass set
+    });
   }
 
   _setClimate(direction) {
@@ -237,7 +259,7 @@ export class LcarsHomePanel extends HTMLElement {
     this._hass.callService("climate", "set_temperature", { entity_id: entity, temperature })
       .catch(() => {
         this._serviceError = "Climate command did not complete.";
-        this._render();
+        this._updatePanels();
       });
   }
 
@@ -255,10 +277,11 @@ export class LcarsHomePanel extends HTMLElement {
 
   _mountCameras(container) {
     if (!container) return;
+    const entries = this._config?.entities
+      ? [["FRONT DOOR", this._config.entities.front_camera], ["BACK DOOR", this._config.entities.back_camera]]
+      : [];
     const expandedMount = this.shadowRoot.querySelector("[data-camera-expanded]");
-    const entries = this._config?.entities ? [["FRONT DOOR", this._config.entities.front_camera], ["BACK DOOR", this._config.entities.back_camera]] : [];
-    container.replaceChildren();
-    expandedMount?.replaceChildren();
+    let changed = false;
     for (const [name, entity] of entries) {
       const key = `${entity}|${this._state(entity)?.state ?? "missing"}`;
       const cached = this._cameraTiles[entity];
@@ -266,23 +289,80 @@ export class LcarsHomePanel extends HTMLElement {
         const template = document.createElement("template");
         template.innerHTML = this._cameraTile(name, entity);
         this._cameraTiles[entity] = { key, node: template.content.firstElementChild };
+        changed = true;
       }
-      const tile = this._cameraTiles[entity].node;
-      const expanded = this._expandedCamera === entity;
-      tile.setAttribute("aria-expanded", String(expanded));
-      tile.classList.toggle("camera-expanded", expanded);
-      (expanded && expandedMount ? expandedMount : container).appendChild(tile);
     }
+    if (changed) {
+      container.replaceChildren(...entries.map(([, entity]) => this._cameraTiles[entity].node));
+      expandedMount?.replaceChildren();
+      this._pushCameraProps();
+    }
+    for (const [, entity] of entries) {
+      const tile = this._cameraTiles[entity]?.node;
+      if (!tile) continue;
+      const expanded = this._expandedCamera === entity;
+      tile.classList.toggle("camera-expanded", expanded);
+      tile.setAttribute("aria-expanded", String(expanded));
+      const target = expanded && expandedMount ? expandedMount : container;
+      if (tile.parentElement !== target) target.appendChild(tile);
+    }
+    this._syncCameraClasses();
   }
 
-  _render() {
-    if (!this.shadowRoot) return;
-    if (!this._config || !this._hass) {
-      this.shadowRoot.innerHTML = `<style>${STYLE}</style><div class="loading">LCARS LINK ESTABLISHING</div>`;
+  _setPanel(name, html) {
+    const el = this.shadowRoot.querySelector(`[data-panel="${name}"]`);
+    if (el) el.innerHTML = html;
+  }
+
+  _renderLoading() {
+    this.shadowRoot.innerHTML = `<style>${STYLE}</style><div class="loading">LCARS LINK ESTABLISHING</div>`;
+  }
+
+  _buildShell() {
+    if (!this._config) {
+      this._renderLoading();
       return;
     }
     const theme = SUPPORTED_THEMES.has(this._config?.theme) ? this._config.theme : "lcars";
     const isCinnamoroll = theme.startsWith("cinnamoroll");
+    this.shadowRoot.innerHTML = `
+      <style>${STYLE}</style>
+      <main class="shell" aria-label="LCARS household dashboard" data-version="${VERSION}" data-theme="${theme}">
+        <div class="top">
+          <aside class="rail" aria-hidden="true"></aside>
+          <section class="console">
+            <header class="masthead" data-panel="masthead"></header>
+            <div class="columns">
+              <section class="left-column">
+                <article class="panel security-panel"><div class="tab sky"><span>SECURITY</span></div><div class="security-list" data-panel="security"></div></article>
+                <article class="panel cameras-panel"><div class="tab sky"><span>ENTRY CAMERAS</span></div><div class="cameras" data-cameras></div></article>
+                <div class="climate-weather-row">
+                  <article class="panel climate-panel" data-panel="climate"></article>
+                  <article class="panel conditions-panel" data-panel="outside"></article>
+                </div>
+                <article class="panel lights-panel"><div class="tab mint"><span>LIGHTS ON</span></div><div class="lights" data-panel="lights"></div></article>
+              </section>
+              <section class="right-column">
+                <article class="panel calendar-panel" data-panel="calendar"></article>
+                <article class="panel forecast-panel" data-panel="hourly"></article>
+                <article class="panel forecast-panel daily" data-panel="daily"></article>
+                <article class="panel feed-panel fuel" data-panel="fuel"></article>
+                <article class="panel feed-panel word" data-panel="word"></article>
+              </section>
+            </div>
+          </section>
+        </div>
+        <div class="camera-overlay" data-camera-overlay aria-hidden="true"><div class="camera-expanded-mount" data-camera-expanded></div></div>
+        <footer class="footer"><span>ALL SYSTEMS NOMINAL</span><span class="footer-code">LCARS HOME · ${VERSION}</span></footer>
+        ${isCinnamoroll ? MASCOT_CINNAMOROLL : ""}
+      </main>`;
+    this._mountCameras(this.shadowRoot.querySelector("[data-cameras]"));
+    this._updatePanels();
+  }
+
+  _updatePanels() {
+    if (!this._config || !this._hass) return;
+    const theme = SUPPORTED_THEMES.has(this._config?.theme) ? this._config.theme : "lcars";
     const e = this._config.entities;
     const tz = this._hass.config?.time_zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     const weather = this._state(e.weather);
@@ -337,54 +417,29 @@ export class LcarsHomePanel extends HTMLElement {
     const setpointLabel = setpoint == null ? "--" : `${Math.round(setpoint)}°`;
     const climateMode = climateDisabled ? "OFFLINE" : esc(hvacLabel(climate?.state).toUpperCase());
 
-    this.shadowRoot.innerHTML = `
-      <style>${STYLE}</style>
-      <main class="shell" aria-label="LCARS household dashboard" data-version="${VERSION}" data-theme="${theme}">
-        <div class="top">
-          <aside class="rail" aria-hidden="true"></aside>
-          <section class="console">
-            <header class="masthead">
-              <div class="masthead-copy"><small>HOME ENVIRONMENT</small><h1>${greeting}</h1></div>
-              <time>${today}</time>
-            </header>
-            <div class="columns">
-              <section class="left-column">
-                <article class="panel security-panel"><div class="tab sky"><span>SECURITY</span></div><div class="security-list">${securityRows}</div></article>
-                <article class="panel cameras-panel"><div class="tab sky"><span>ENTRY CAMERAS</span></div><div class="cameras" data-cameras></div></article>
-                <div class="climate-weather-row">
-                  <article class="panel climate-panel"><div class="tab salmon"><span>FAMILY ROOM · NEST</span></div><div class="climate-body">
-                    <div class="climate-hero"><strong>${heroTemp}</strong><em>${climateMode}</em></div>
-                    <div class="climate-controls"><button class="adjust" data-adjust="-1" ${climateDisabled} aria-label="Decrease thermostat setpoint">−</button><span class="climate-setpoint">SET ${setpointLabel}</span><button class="adjust" data-adjust="1" ${climateDisabled} aria-label="Increase thermostat setpoint">+</button></div>
-                  </div>${this._serviceError ? `<div class="service-error">${esc(this._serviceError)}</div>` : ""}</article>
-                  <article class="panel conditions-panel"><div class="tab lilac"><span>OUTSIDE</span></div><div class="outside-stack">
-                    <div class="outside-reading"><small>TEMP</small><b>${outsideLabel}</b></div>
-                    <div class="outside-reading"><small>HUMIDITY</small><b>${humidityLabel}</b></div>
-                    <div class="outside-reading"><small>WIND</small><b>${windLabel}</b></div>
-                    <div class="outside-reading"><small>PRESSURE</small><b>${pressureKpa} <span class="pressure-arrow ${pressureDirection}" title="Pressure ${pressureDirection}">${pressureArrow}</span></b></div>
-                  </div></article>
-                </div>
-                <article class="panel lights-panel"><div class="tab mint"><span>LIGHTS ON</span></div><div class="lights">${lights}</div></article>
-              </section>
-              <section class="right-column">
-                <article class="panel calendar-panel"><div class="tab apricot"><span>CALENDAR · TODAY</span></div><div class="events">${events}</div></article>
-                <article class="panel forecast-panel"><div class="tab lilac"><span>HOURLY WEATHER</span></div><div class="forecast">${hourly}</div></article>
-                <article class="panel forecast-panel daily"><div class="tab lilac"><span>DAILY WEATHER</span></div><div class="forecast">${daily}</div></article>
-                <article class="panel feed-panel fuel"><div class="tab gold"><span>FUEL · MARKHAM</span></div><div class="feed">${fuel}</div></article>
-                <article class="panel feed-panel word"><div class="tab gold"><span>WORD OF THE DAY</span></div><div class="feed">${word}</div></article>
-              </section>
-            </div>
-          </section>
-        </div>
-        <div class="camera-overlay ${this._expandedCamera ? "open" : ""}" data-camera-overlay aria-hidden="${this._expandedCamera ? "false" : "true"}"><div class="camera-expanded-mount" data-camera-expanded></div></div>
-        <footer class="footer"><span>ALL SYSTEMS NOMINAL</span><span class="footer-code">LCARS HOME · ${VERSION}</span></footer>
-        ${isCinnamoroll ? MASCOT_CINNAMOROLL : ""}
-      </main>`;
+    this._setPanel("masthead", `<div class="masthead-copy"><small>HOME ENVIRONMENT</small><h1>${greeting}</h1></div><time>${today}</time>`);
+    this._setPanel("security", `${securityRows}`);
+    this._setPanel("climate", `<div class="tab salmon"><span>FAMILY ROOM · NEST</span></div><div class="climate-body">
+      <div class="climate-hero"><strong>${heroTemp}</strong><em>${climateMode}</em></div>
+      <div class="climate-controls"><button class="adjust" data-adjust="-1" ${climateDisabled} aria-label="Decrease thermostat setpoint">−</button><span class="climate-setpoint">SET ${setpointLabel}</span><button class="adjust" data-adjust="1" ${climateDisabled} aria-label="Increase thermostat setpoint">+</button></div>
+    </div>${this._serviceError ? `<div class="service-error">${esc(this._serviceError)}</div>` : ""}`);
+    this._setPanel("outside", `<div class="tab lilac"><span>OUTSIDE</span></div><div class="outside-stack">
+      <div class="outside-reading"><small>TEMP</small><b>${outsideLabel}</b></div>
+      <div class="outside-reading"><small>HUMIDITY</small><b>${humidityLabel}</b></div>
+      <div class="outside-reading"><small>WIND</small><b>${windLabel}</b></div>
+      <div class="outside-reading"><small>PRESSURE</small><b>${pressureKpa} <span class="pressure-arrow ${pressureDirection}" title="Pressure ${pressureDirection}">${pressureArrow}</span></b></div>
+    </div>`);
+    this._setPanel("lights", `${lights}`);
+    this._setPanel("calendar", `<div class="tab apricot"><span>CALENDAR · TODAY</span></div><div class="events">${events}</div>`);
+    this._setPanel("hourly", `<div class="tab lilac"><span>HOURLY WEATHER</span></div><div class="forecast">${hourly}</div>`);
+    this._setPanel("daily", `<div class="tab lilac"><span>DAILY WEATHER</span></div><div class="forecast">${daily}</div>`);
+    this._setPanel("fuel", `<div class="tab gold"><span>FUEL · MARKHAM</span></div><div class="feed">${fuel}</div>`);
+    this._setPanel("word", `<div class="tab gold"><span>WORD OF THE DAY</span></div><div class="feed">${word}</div>`);
+
     this._mountCameras(this.shadowRoot.querySelector("[data-cameras]"));
-    this.shadowRoot.querySelectorAll("ha-camera-stream[data-camera]").forEach((stream) => {
-      stream.hass = this._hass;
-      stream.stateObj = this._state(stream.dataset.camera);
-    });
+    this._pushCameraProps();
     this.shadowRoot.querySelectorAll("[data-adjust]").forEach((button) => button.addEventListener("click", () => this._setClimate(Number(button.dataset.adjust))));
+    this._syncCameraClasses();
   }
 }
 

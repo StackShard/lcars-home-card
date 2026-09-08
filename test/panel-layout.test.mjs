@@ -42,9 +42,10 @@ test("type scale is raised across tabs, feeds, and panels", () => {
 });
 
 test("lights-on section sits under the climate and Outside row as its own panel", () => {
-  const outsidePanel = source.indexOf("<article class=\"panel conditions-panel\"><div class=\"tab lilac\"><span>OUTSIDE</span></div>");
-  const lightsIndex = source.indexOf("<article class=\"panel lights-panel\"><div class=\"tab mint\"><span>LIGHTS ON</span></div>");
-  assert.ok(outsidePanel > 0 && lightsIndex > outsidePanel);
+  const climateRow = source.indexOf("<div class=\"climate-weather-row\">");
+  const lightsIndex = source.indexOf("<article class=\"panel lights-panel\">");
+  const outsideConditions = source.indexOf("<article class=\"panel conditions-panel\"");
+  assert.ok(climateRow > 0 && outsideConditions > climateRow && lightsIndex > outsideConditions);
   assert.match(source, /const lights = lightsOn\(this\._hass\?\.states\)/);
   assert.match(source, /No lights are on right now\./);
   assert.match(source, /\.tab\.mint \{ background:var\(--mint\)/);
@@ -84,8 +85,9 @@ test("cameras are restored to their compact slot in the left column", () => {
 test("camera stream elements persist across renders so feeds never restart (flicker fix)", () => {
   assert.match(source, /this\._cameraTiles = \{\};/);
   assert.match(source, /_mountCameras\(container\)/);
-  assert.match(source, /container\.replaceChildren\(\)/);
+  assert.match(source, /container\.replaceChildren\(\.\.\.entries\.map/);
   assert.match(source, /const cached = this\._cameraTiles\[entity\];/);
+  assert.match(source, /if \(!cached \|\| cached\.key !== key\)/);
   assert.match(source, /this\._mountCameras\(this\.shadowRoot\.querySelector\("\[data-cameras\]"\)\)/);
   assert.match(source, /<div class="cameras" data-cameras><\/div>/);
 });
@@ -107,7 +109,7 @@ test("fuel card stamps the last poll time so freshness is visible", () => {
 });
 
 test("header spans full width flush against the rail with the date inline", () => {
-  assert.match(source, /<header class="masthead">/);
+  assert.match(source, /<header class="masthead"[^>]*>/);
   assert.match(source, /\.masthead \{ [^}]*background:var\(--apricot\)/);
   assert.match(source, /class="masthead-copy"/);
   assert.match(source, /<time>[\s\S]*?<\/time>/);
@@ -116,8 +118,9 @@ test("header spans full width flush against the rail with the date inline", () =
 test("family room and Outside share the left column equally", () => {
   assert.match(source, /<div class="climate-weather-row">/);
   assert.match(source, /\.climate-weather-row \{ display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-  assert.match(source, /<article class="panel climate-panel">/);
-  assert.match(source, /<article class="panel conditions-panel"><div class="tab lilac"><span>OUTSIDE<\/span>/);
+  assert.match(source, /<article class="panel climate-panel"[^>]*>/);
+  assert.match(source, /<article class="panel conditions-panel"[^>]*>/);
+  assert.match(source, /OUTSIDE<\/span>/);
   assert.doesNotMatch(source, /CURRENT CONDITIONS/);
   assert.doesNotMatch(source, /class="climate-outside"/);
 });

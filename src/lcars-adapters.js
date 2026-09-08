@@ -28,7 +28,7 @@ function escapeAttribute(value) {
 
 export function cameraStreamMarkup(name, entity, state) {
   const label = String(name ?? "Camera").toUpperCase();
-  return `<div class="camera" data-camera-tile="${escapeAttribute(entity)}" role="button" tabindex="0" aria-expanded="false"><ha-camera-stream class="camera-stream" data-camera="${escapeAttribute(entity)}" aria-label="${escapeAttribute(label)} camera"></ha-camera-stream><div class="camera-label"><span>${escapeAttribute(label)}</span><b>LIVE</b></div></div>`;
+  return `<div class="camera" data-camera-tile="${escapeAttribute(entity)}" role="button" tabindex="0" aria-expanded="false"><ha-hls-player class="camera-stream" data-camera="${escapeAttribute(entity)}" autoplay playsinline muted aria-label="${escapeAttribute(label)} camera live stream"></ha-hls-player><div class="camera-label"><span>${escapeAttribute(label)}</span><b>LIVE</b></div></div>`;
 }
 
 export function cameraOfflineMarkup(name, entity, state, stillUrl) {
