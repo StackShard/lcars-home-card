@@ -28,7 +28,7 @@ function escapeAttribute(value) {
 
 export function cameraStreamMarkup(name, entity, state) {
   const label = String(name ?? "Camera").toUpperCase();
-  return `<div class="camera"><ha-camera-stream class="camera-stream" data-camera="${escapeAttribute(entity)}" aria-label="${escapeAttribute(label)} camera"></ha-camera-stream><div class="camera-label"><span>${escapeAttribute(label)}</span><b>LIVE</b></div></div>`;
+  return `<div class="camera" data-camera-tile="${escapeAttribute(entity)}" role="button" tabindex="0" aria-expanded="false"><ha-camera-stream class="camera-stream" data-camera="${escapeAttribute(entity)}" aria-label="${escapeAttribute(label)} camera"></ha-camera-stream><div class="camera-label"><span>${escapeAttribute(label)}</span><b>LIVE</b></div></div>`;
 }
 
 export function cameraOfflineMarkup(name, entity, state, stillUrl) {
@@ -36,7 +36,7 @@ export function cameraOfflineMarkup(name, entity, state, stillUrl) {
   const picture = stillUrl
     ? `<img class="camera-still" src="${escapeAttribute(stillUrl)}" alt="" loading="lazy" onerror="this.style.display='none'">`
     : "";
-  return `<div class="camera camera-offline"><div class="camera-frame">${picture}<span class="camera-glyph" aria-hidden="true">&#9680;</span></div><div class="camera-label"><span>${escapeAttribute(label)}</span><b>OFFLINE</b></div></div>`;
+  return `<div class="camera camera-offline" data-camera-tile="${escapeAttribute(entity)}" role="button" tabindex="0" aria-expanded="false"><div class="camera-frame">${picture}<span class="camera-glyph" aria-hidden="true">&#9680;</span></div><div class="camera-label"><span>${escapeAttribute(label)}</span><b>OFFLINE</b></div></div>`;
 }
 
 export function lightsOn(states) {
@@ -86,6 +86,20 @@ export function classifyForecast(entries) {
   const ordered = [...steps].sort((a, b) => a - b);
   const median = ordered[Math.floor(ordered.length / 2)];
   return median <= 6 ? { hourly: sorted, daily: [] } : { hourly: [], daily: sorted };
+}
+
+export function pressureTrend(currentPressure, history, deadband = 0.15) {
+  const current = Number(currentPressure);
+  if (!Number.isFinite(current)) return { direction: "unknown", arrow: "", delta: null };
+  const records = Array.isArray(history) ? history.flat().filter(Boolean) : [];
+  const baseline = records
+    .map((record) => Number(record?.attributes?.pressure))
+    .find((value) => Number.isFinite(value));
+  if (!Number.isFinite(baseline)) return { direction: "unknown", arrow: "", delta: null };
+  const delta = Math.round((current - baseline) * 10) / 10;
+  if (delta > deadband) return { direction: "rising", arrow: "↑", delta };
+  if (delta < -deadband) return { direction: "falling", arrow: "↓", delta };
+  return { direction: "steady", arrow: "", delta };
 }
 
 export function formatTime(value, locale = "en-CA", timezone) {

@@ -41,10 +41,10 @@ test("type scale is raised across tabs, feeds, and panels", () => {
   assert.match(source, /\.event \{[\s\S]*?font-size:11\.5px/);
 });
 
-test("lights-on section sits under current conditions as its own panel", () => {
-  const conditions = source.indexOf("CURRENT CONDITIONS");
+test("lights-on section sits under the climate and Outside row as its own panel", () => {
+  const outsidePanel = source.indexOf("<article class=\"panel conditions-panel\"><div class=\"tab lilac\"><span>OUTSIDE</span></div>");
   const lightsIndex = source.indexOf("<article class=\"panel lights-panel\"><div class=\"tab mint\"><span>LIGHTS ON</span></div>");
-  assert.ok(conditions > 0 && lightsIndex > conditions);
+  assert.ok(outsidePanel > 0 && lightsIndex > outsidePanel);
   assert.match(source, /const lights = lightsOn\(this\._hass\?\.states\)/);
   assert.match(source, /No lights are on right now\./);
   assert.match(source, /\.tab\.mint \{ background:var\(--mint\)/);
@@ -64,16 +64,15 @@ test("cinnamoroll theme: pastel palette, rounded panels, mascot, lcars default u
   assert.match(source, /\.shell \{ [^}]*--bg:#06070b/);
 });
 
-test("cameras are a full-width hero band above the columns, tiles larger", () => {
-  const masthead = source.indexOf("</header>");
-  const band = source.indexOf("<article class=\"panel cameras-panel\">");
-  const columns = source.indexOf("class=\"columns\"");
-  const leftColumn = source.indexOf("left-column");
-  assert.ok(masthead > 0 && band > masthead && columns > band && leftColumn > band, "cameras band must sit between masthead and the two columns");
-  assert.doesNotMatch(source, /\.cameras \{ display:grid; grid-template-columns:1fr 1fr/);
-  assert.match(source, /\.cameras \{ max-width:560px; margin:0 auto; display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-  assert.match(source, /\.camera-glyph \{ font-size:36px/);
-  assert.match(source, /\.camera-label \{ [^}]*min-height:30px/);
+test("cameras are restored to their compact slot in the left column", () => {
+  const leftColumn = source.indexOf("<section class=\"left-column\">");
+  const security = source.indexOf("<article class=\"panel security-panel\">");
+  const cameras = source.indexOf("<article class=\"panel cameras-panel\">");
+  const climateRow = source.indexOf("<div class=\"climate-weather-row\">");
+  const rightColumn = source.indexOf("<section class=\"right-column\">");
+  assert.ok(leftColumn > 0 && security > leftColumn && cameras > security && climateRow > cameras && rightColumn > climateRow);
+  assert.match(source, /\.cameras \{ display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\); gap:5px; padding:7px/);
+  assert.doesNotMatch(source, /\.cameras \{ max-width:560px/);
 });
 
 test("camera stream elements persist across renders so feeds never restart (flicker fix)", () => {
@@ -83,6 +82,15 @@ test("camera stream elements persist across renders so feeds never restart (flic
   assert.match(source, /const cached = this\._cameraTiles\[entity\];/);
   assert.match(source, /this\._mountCameras\(this\.shadowRoot\.querySelector\("\[data-cameras\]"\)\)/);
   assert.match(source, /<div class="cameras" data-cameras><\/div>/);
+});
+
+test("camera tile tap toggles the same persistent stream into and out of a magnified overlay", () => {
+  assert.match(source, /this\._expandedCamera = null/);
+  assert.match(source, /_toggleCameraZoom\(entity\)/);
+  assert.match(source, /this\._expandedCamera = this\._expandedCamera === entity \? null : entity/);
+  assert.match(source, /data-camera-expanded/);
+  assert.match(source, /\.camera-overlay\.open/);
+  assert.match(source, /aria-expanded/);
 });
 
 test("fuel card stamps the last poll time so freshness is visible", () => {
@@ -99,13 +107,34 @@ test("header spans full width flush against the rail with the date inline", () =
   assert.match(source, /<time>[\s\S]*?<\/time>/);
 });
 
-test("climate card reads current first, setpoint beside the controls, outside tertiary", () => {
-  assert.match(source, /current_temperature/);
-  assert.match(source, /class="climate-hero"/);
-  assert.match(source, /\.climate-hero strong \{[\s\S]*?font-size:42px/);
-  assert.match(source, /class="climate-outside"/);
-  assert.match(source, /class="climate-setpoint"/);
-  assert.match(source, /SET \$\{setpointLabel\}/);
+test("family room and Outside share the left column equally", () => {
+  assert.match(source, /<div class="climate-weather-row">/);
+  assert.match(source, /\.climate-weather-row \{ display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(source, /<article class="panel climate-panel">/);
+  assert.match(source, /<article class="panel conditions-panel"><div class="tab lilac"><span>OUTSIDE<\/span>/);
+  assert.doesNotMatch(source, /CURRENT CONDITIONS/);
+  assert.doesNotMatch(source, /class="climate-outside"/);
+});
+
+test("Outside is a vertical stack ordered temperature, humidity, wind, pressure in kPa", () => {
+  const outside = source.indexOf("<div class=\"outside-stack\">");
+  const temperature = source.indexOf("<small>TEMP</small>", outside);
+  const humidity = source.indexOf("<small>HUMIDITY</small>", outside);
+  const wind = source.indexOf("<small>WIND</small>", outside);
+  const pressure = source.indexOf("<small>PRESSURE</small>", outside);
+  assert.ok(outside > 0 && temperature > outside && humidity > temperature && wind > humidity && pressure > wind);
+  assert.match(source, /pressureKpa/);
+  assert.match(source, /pressureArrow/);
+  assert.match(source, /kPa/);
+  assert.match(source, /\.outside-stack \{[^}]*display:flex; flex-direction:column/);
+});
+
+test("pressure arrow comes from a three-hour Home Assistant recorder trend", () => {
+  assert.match(source, /pressureTrend/);
+  assert.match(source, /_ensurePressureTrend\(\)/);
+  assert.match(source, /hoursAgo\(3\)/);
+  assert.match(source, /history\/period/);
+  assert.match(source, /filter_entity_id/);
 });
 
 test("failed cameras render a placeholder glyph plus last-good frame", () => {

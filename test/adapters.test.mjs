@@ -13,6 +13,7 @@ import {
   lightsOn,
   nextTemperature,
   normalizeSecurity,
+  pressureTrend,
   visibleForecast,
 } from "../src/lcars-adapters.js";
 
@@ -57,10 +58,13 @@ test("lightsOn returns an empty list when nothing is on, and tolerates missing s
   assert.deepEqual(lightsOn({}), []);
 });
 
-test("cameraStreamMarkup uses HA's native stream surface without proxy token markup", () => {
+test("cameraStreamMarkup makes the native stream tile tappable without proxy token markup", () => {
   const markup = cameraStreamMarkup("Front Door", "camera.front_door_camera", "streaming");
   assert.match(markup, /<ha-camera-stream/);
   assert.match(markup, /data-camera="camera\.front_door_camera"/);
+  assert.match(markup, /data-camera-tile="camera\.front_door_camera"/);
+  assert.match(markup, /role="button"/);
+  assert.match(markup, /tabindex="0"/);
   assert.match(markup, /FRONT DOOR/);
   assert.match(markup, /LIVE/);
   assert.doesNotMatch(markup, /camera_proxy|token=/);
@@ -118,6 +122,21 @@ test("classifyForecast distinguishes hourly cadence from daily cadence by step s
   assert.deepEqual(classifyForecast(daily), { hourly: [], daily });
   assert.deepEqual(classifyForecast([{ datetime: "bad" }]), { hourly: [], daily: [] });
   assert.deepEqual(classifyForecast(undefined), { hourly: [], daily: [] });
+});
+
+test("pressureTrend compares current pressure with the oldest valid recorder sample", () => {
+  const history = [[
+    { attributes: { pressure: 1020.4 } },
+    { attributes: { pressure: 1021.0 } },
+  ]];
+  assert.deepEqual(pressureTrend(1021.0, history), { direction: "rising", arrow: "↑", delta: 0.6 });
+  assert.deepEqual(pressureTrend(1020.0, history), { direction: "falling", arrow: "↓", delta: -0.4 });
+});
+
+test("pressureTrend suppresses recorder noise and tolerates unavailable history", () => {
+  assert.deepEqual(pressureTrend(1020.45, [[{ attributes: { pressure: 1020.4 } }]]), { direction: "steady", arrow: "", delta: 0.1 });
+  assert.deepEqual(pressureTrend(1020, []), { direction: "unknown", arrow: "", delta: null });
+  assert.deepEqual(pressureTrend(undefined, [[{ attributes: { pressure: 1020 } }]]), { direction: "unknown", arrow: "", delta: null });
 });
 
 test("conditionLabel and hvacLabel give readable sentence-case labels", () => {

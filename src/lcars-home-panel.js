@@ -2,7 +2,6 @@ import {
   cameraOfflineMarkup,
   cameraStreamMarkup,
   classifyForecast,
-  conditionLabel,
   formatDay,
   formatFeed,
   formatPrecipitation,
@@ -11,11 +10,12 @@ import {
   lightsOn,
   nextTemperature,
   normalizeSecurity,
+  pressureTrend,
   safeText,
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.15";
+const VERSION = "0.1.16";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
 const CAMERA_FAILED = new Set(["unknown", "unavailable", "none", "", "off", "unavailable"]);
 
@@ -68,6 +68,10 @@ function isoAtLocalMidnight(timeZone, shiftDays = 0) {
   return `${y}-${m}-${d}T00:00:00${sign}${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
+function hoursAgo(hours, now = new Date()) {
+  return new Date(now.getTime() - (hours * 60 * 60 * 1000)).toISOString();
+}
+
 function formatCalendarTime(value, timeZone) {
   if (!value?.dateTime) return "ALL DAY";
   return formatTime(value.dateTime, "en-CA", timeZone);
@@ -94,11 +98,29 @@ export class LcarsHomePanel extends HTMLElement {
     this._calendarError = null;
     this._unsubscribers = [];
     this._cameraTiles = {};
+    this._expandedCamera = null;
+    this._pressureTrend = { direction: "unknown", arrow: "", delta: null };
+    this._pressureTrendKey = null;
+    this.shadowRoot.addEventListener("click", (event) => {
+      const tile = event.target.closest?.("[data-camera-tile]");
+      if (tile) this._toggleCameraZoom(tile.dataset.cameraTile);
+    });
+    this.shadowRoot.addEventListener("keydown", (event) => {
+      const tile = event.target.closest?.("[data-camera-tile]");
+      if (tile && ["Enter", " "].includes(event.key)) {
+        event.preventDefault();
+        this._toggleCameraZoom(tile.dataset.cameraTile);
+      } else if (event.key === "Escape" && this._expandedCamera) {
+        this._toggleCameraZoom(this._expandedCamera);
+      }
+    });
   }
 
   setConfig(config) {
     this._config = { ...config, entities: { ...DEFAULTS, ...(config?.entities ?? {}) } };
     this._cameraTiles = {};
+    this._expandedCamera = null;
+    this._pressureTrendKey = null;
     this._resetSubscriptions();
     this._render();
   }
@@ -107,6 +129,7 @@ export class LcarsHomePanel extends HTMLElement {
     this._hass = hass;
     this._ensureForecastSubscriptions();
     this._ensureCalendar();
+    this._ensurePressureTrend();
     this._render();
   }
 
@@ -177,6 +200,33 @@ export class LcarsHomePanel extends HTMLElement {
       });
   }
 
+  _ensurePressureTrend() {
+    const weatherEntity = this._config?.entities?.weather;
+    const weather = this._state(weatherEntity);
+    const currentPressure = weather?.attributes?.pressure;
+    const key = weatherEntity && weather ? `${weatherEntity}:${weather.last_updated ?? weather.last_changed ?? "current"}` : null;
+    if (!key || this._pressureTrendKey === key || !this._hass?.callApi) return;
+    this._pressureTrendKey = key;
+    const start = hoursAgo(3);
+    this._hass.callApi("GET", `history/period/${encodeURIComponent(start)}?filter_entity_id=${encodeURIComponent(weatherEntity)}`)
+      .then((history) => {
+        if (this._pressureTrendKey !== key) return;
+        this._pressureTrend = pressureTrend(currentPressure, history);
+        this._render();
+      })
+      .catch(() => {
+        if (this._pressureTrendKey !== key) return;
+        this._pressureTrend = { direction: "unknown", arrow: "", delta: null };
+        this._render();
+      });
+  }
+
+  _toggleCameraZoom(entity) {
+    if (!entity) return;
+    this._expandedCamera = this._expandedCamera === entity ? null : entity;
+    this._render();
+  }
+
   _setClimate(direction) {
     const entity = this._config.entities.climate;
     const climate = this._state(entity);
@@ -204,8 +254,10 @@ export class LcarsHomePanel extends HTMLElement {
 
   _mountCameras(container) {
     if (!container) return;
+    const expandedMount = this.shadowRoot.querySelector("[data-camera-expanded]");
     const entries = this._config?.entities ? [["FRONT DOOR", this._config.entities.front_camera], ["BACK DOOR", this._config.entities.back_camera]] : [];
     container.replaceChildren();
+    expandedMount?.replaceChildren();
     for (const [name, entity] of entries) {
       const key = `${entity}|${this._state(entity)?.state ?? "missing"}`;
       const cached = this._cameraTiles[entity];
@@ -214,7 +266,11 @@ export class LcarsHomePanel extends HTMLElement {
         template.innerHTML = this._cameraTile(name, entity);
         this._cameraTiles[entity] = { key, node: template.content.firstElementChild };
       }
-      container.appendChild(this._cameraTiles[entity].node);
+      const tile = this._cameraTiles[entity].node;
+      const expanded = this._expandedCamera === entity;
+      tile.setAttribute("aria-expanded", String(expanded));
+      tile.classList.toggle("camera-expanded", expanded);
+      (expanded && expandedMount ? expandedMount : container).appendChild(tile);
     }
   }
 
@@ -269,6 +325,12 @@ export class LcarsHomePanel extends HTMLElement {
 
     const heroTemp = roomTemp == null ? "--" : `${Math.round(roomTemp)}°`;
     const outsideLabel = outsideTemp == null ? "--" : `${Math.round(outsideTemp)}°`;
+    const humidityLabel = weather?.attributes?.humidity == null ? "--" : `${Math.round(weather.attributes.humidity)}%`;
+    const windLabel = weather?.attributes?.wind_speed == null ? "--" : `${Math.round(weather.attributes.wind_speed)} km/h`;
+    const pressureHpa = Number(weather?.attributes?.pressure);
+    const pressureKpa = Number.isFinite(pressureHpa) ? `${(pressureHpa / 10).toFixed(1)} kPa` : "--";
+    const pressureArrow = this._pressureTrend?.arrow ?? "";
+    const pressureDirection = this._pressureTrend?.direction ?? "unknown";
     const setpointLabel = setpoint == null ? "--" : `${Math.round(setpoint)}°`;
     const climateMode = climateDisabled ? "OFFLINE" : esc(hvacLabel(climate?.state).toUpperCase());
 
@@ -282,16 +344,22 @@ export class LcarsHomePanel extends HTMLElement {
               <div class="masthead-copy"><small>HOME ENVIRONMENT</small><h1>${greeting}</h1></div>
               <time>${today}</time>
             </header>
-            <article class="panel cameras-panel"><div class="tab sky"><span>ENTRY CAMERAS</span></div><div class="cameras" data-cameras></div></article>
             <div class="columns">
               <section class="left-column">
                 <article class="panel security-panel"><div class="tab sky"><span>SECURITY</span></div><div class="security-list">${securityRows}</div></article>
-                <article class="panel climate-panel"><div class="tab salmon"><span>FAMILY ROOM · NEST</span></div><div class="climate-body">
-                  <div class="climate-hero"><small>FAMILY ROOM</small><strong>${heroTemp}</strong><em>${climateMode}</em></div>
-                  <div class="climate-outside"><small>OUTSIDE</small><b>${outsideLabel}</b><span>${esc(conditionLabel(weather?.state))}</span></div>
-                  <div class="climate-controls"><button class="adjust" data-adjust="-1" ${climateDisabled} aria-label="Decrease thermostat setpoint">−</button><span class="climate-setpoint">SET ${setpointLabel}</span><button class="adjust" data-adjust="1" ${climateDisabled} aria-label="Increase thermostat setpoint">+</button></div>
-                </div>${this._serviceError ? `<div class="service-error">${esc(this._serviceError)}</div>` : ""}</article>
-                <article class="panel conditions-panel"><div class="tab lilac"><span>CURRENT CONDITIONS</span></div><div class="conditions"><b>${esc(weather?.attributes?.humidity == null ? "--" : `${Math.round(weather.attributes.humidity)}%`)} <small>HUMIDITY</small></b><b>${esc(weather?.attributes?.wind_speed == null ? "--" : `${Math.round(weather.attributes.wind_speed)} km/h`)} <small>WIND</small></b><b>${esc(weather?.attributes?.pressure == null ? "--" : `${Math.round(weather.attributes.pressure)} hPa`)} <small>PRESSURE</small></b></div></article>
+                <article class="panel cameras-panel"><div class="tab sky"><span>ENTRY CAMERAS</span></div><div class="cameras" data-cameras></div></article>
+                <div class="climate-weather-row">
+                  <article class="panel climate-panel"><div class="tab salmon"><span>FAMILY ROOM · NEST</span></div><div class="climate-body">
+                    <div class="climate-hero"><strong>${heroTemp}</strong><em>${climateMode}</em></div>
+                    <div class="climate-controls"><button class="adjust" data-adjust="-1" ${climateDisabled} aria-label="Decrease thermostat setpoint">−</button><span class="climate-setpoint">SET ${setpointLabel}</span><button class="adjust" data-adjust="1" ${climateDisabled} aria-label="Increase thermostat setpoint">+</button></div>
+                  </div>${this._serviceError ? `<div class="service-error">${esc(this._serviceError)}</div>` : ""}</article>
+                  <article class="panel conditions-panel"><div class="tab lilac"><span>OUTSIDE</span></div><div class="outside-stack">
+                    <div class="outside-reading"><small>TEMP</small><b>${outsideLabel}</b></div>
+                    <div class="outside-reading"><small>HUMIDITY</small><b>${humidityLabel}</b></div>
+                    <div class="outside-reading"><small>WIND</small><b>${windLabel}</b></div>
+                    <div class="outside-reading"><small>PRESSURE</small><b>${pressureKpa} <span class="pressure-arrow ${pressureDirection}" title="Pressure ${pressureDirection}">${pressureArrow}</span></b></div>
+                  </div></article>
+                </div>
                 <article class="panel lights-panel"><div class="tab mint"><span>LIGHTS ON</span></div><div class="lights">${lights}</div></article>
               </section>
               <section class="right-column">
@@ -304,6 +372,7 @@ export class LcarsHomePanel extends HTMLElement {
             </div>
           </section>
         </div>
+        <div class="camera-overlay ${this._expandedCamera ? "open" : ""}" data-camera-overlay aria-hidden="${this._expandedCamera ? "false" : "true"}"><div class="camera-expanded-mount" data-camera-expanded></div></div>
         <footer class="footer"><span>ALL SYSTEMS NOMINAL</span><span class="footer-code">LCARS HOME · ${VERSION}</span></footer>
         ${this._config?.theme === "cinnamoroll" ? MASCOT_CINNAMOROLL : ""}
       </main>`;
@@ -332,10 +401,12 @@ const STYLE = `
 .columns { display:grid; grid-template-columns:minmax(0,.94fr) minmax(0,1.06fr); gap:10px; padding:12px 12px 16px; align-items:start; } .left-column,.right-column { min-width:0; display:flex; flex-direction:column; gap:10px; }
 .panel { min-width:0; background:var(--panel-bg); overflow:hidden; } .tab { color:var(--on-tab); font-weight:950; letter-spacing:.13em; font-size:11px; min-height:29px; padding:7px 10px 7px 0; display:flex; align-items:center; width:100%; clip-path:polygon(0 0,100% 0,100% 48%,calc(100% - 16px) 100%,0 100%); } .tab span { display:block; padding-left:13px; } .tab.sky { background:var(--sky); } .tab.apricot { background:var(--apricot); } .tab.salmon { background:var(--salmon); } .tab.lilac { background:var(--lilac); } .tab.gold { background:var(--gold); } .tab.mint { background:var(--mint); }
 .security-panel { --panel:var(--sky); } .security-list { display:grid; grid-template-columns:1fr 1fr; padding:8px; gap:5px; } .security-row { background:var(--row); padding:7px 9px; display:flex; justify-content:space-between; gap:4px; align-items:center; color:var(--text); font-size:10.5px; font-weight:800; letter-spacing:.05em; } .security-row:last-child { grid-column:span 2; } .security-row b { color:var(--sky-ink); font-size:9.5px; } .security-row.alert { background:#412227; color:#ffd6cd; } .security-row.alert b { color:#ff9c8d; }
-.cameras-panel { --panel:var(--sky); margin:12px 12px 0; } .cameras { max-width:560px; margin:0 auto; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; padding:7px 7px 8px; } .camera { background:#15171e; min-width:0; min-height:0; aspect-ratio:16/9; overflow:hidden; position:relative; } .camera-stream { display:block; width:100%; height:100%; background:#0a0b0e; } .camera-frame { position:absolute; inset:0; display:grid; place-items:center; background:#0c0d11; } .camera-still { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.4; filter:grayscale(.4); } .camera-glyph { font-size:36px; color:var(--cam-glyph); position:relative; } .camera-label { position:absolute; inset:auto 0 0; min-height:30px; padding:7px 8px; background:rgba(5,6,9,.78); display:flex; justify-content:space-between; align-items:center; color:#edf5f6; font-size:10.5px; font-weight:850; letter-spacing:.06em; pointer-events:none; } .camera-label b { color:var(--sky-ink); font-size:10px; } .camera-offline .camera-label b { color:#ff9c8d; }
+.cameras-panel { --panel:var(--sky); } .cameras { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; padding:7px; } .camera { background:#15171e; min-width:0; min-height:0; aspect-ratio:16/9; overflow:hidden; position:relative; cursor:pointer; touch-action:manipulation; } .camera:focus-visible { outline:3px solid var(--sky-ink); outline-offset:-3px; } .camera-stream { display:block; width:100%; height:100%; background:#0a0b0e; } .camera-frame { position:absolute; inset:0; display:grid; place-items:center; background:#0c0d11; } .camera-still { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; opacity:.4; filter:grayscale(.4); } .camera-glyph { font-size:26px; color:var(--cam-glyph); position:relative; } .camera-label { position:absolute; inset:auto 0 0; min-height:24px; padding:5px 6px; background:rgba(5,6,9,.78); display:flex; justify-content:space-between; align-items:center; color:#edf5f6; font-size:8.5px; font-weight:850; letter-spacing:.05em; pointer-events:none; } .camera-label b { color:var(--sky-ink); font-size:8px; } .camera-offline .camera-label b { color:#ff9c8d; }
+.camera-overlay { position:absolute; inset:0; z-index:20; display:none; place-items:center; padding:34px; background:rgba(8,14,22,.88); backdrop-filter:blur(8px); } .camera-overlay.open { display:grid; } .camera-expanded-mount { width:min(700px,100%); } .camera-expanded-mount .camera { width:100%; aspect-ratio:16/9; border:3px solid var(--sky); border-radius:16px; box-shadow:0 18px 60px rgba(0,0,0,.45); } .camera-expanded-mount .camera-label { min-height:38px; padding:8px 12px; font-size:13px; } .camera-expanded-mount .camera-label b { font-size:11px; }
 .events { padding:7px 9px; display:flex; flex-direction:column; gap:5px; } .event { display:grid; grid-template-columns:48px 1fr; gap:8px; align-items:start; border-left:3px solid var(--apricot-ink); padding:6px 7px; background:var(--row); color:var(--text); font-size:11.5px; line-height:1.3; } .event time { color:var(--apricot-ink); font-weight:900; font-size:9.5px; letter-spacing:.04em; padding-top:1px; } .event.past { opacity:.57; border-left-color:var(--event-past-line); } .event.empty { display:block; background:transparent; border-left-color:transparent; color:var(--text-2); font-size:11px; padding:2px 6px; }
-.climate-panel { --panel:var(--salmon); } .climate-body { padding:10px 11px 9px; display:grid; grid-template-columns:1.1fr 1fr; grid-template-areas:"hero outside" "controls controls"; column-gap:12px; row-gap:9px; } .climate-hero { grid-area:hero; } .climate-hero small, .climate-outside small { display:block; color:var(--muted); font-size:9px; letter-spacing:.16em; font-weight:900; margin-bottom:4px; } .climate-hero strong { display:block; color:var(--text); font-size:42px; line-height:.95; letter-spacing:-.04em; } .climate-hero em { display:block; font-style:normal; color:var(--salmon-ink); font-size:9px; font-weight:900; letter-spacing:.2em; margin-top:5px; } .climate-outside { grid-area:outside; align-self:center; padding-left:12px; border-left:1px solid rgba(244,136,120,.28); } .climate-outside b { display:inline-block; color:var(--text); font-size:22px; margin-right:6px; line-height:1; } .climate-outside span { color:var(--text-2); font-size:10px; font-weight:750; letter-spacing:.05em; text-transform:capitalize; } .climate-controls { grid-area:controls; display:grid; grid-template-columns:46px 1fr 46px; gap:6px; align-items:center; } .climate-setpoint { text-align:center; color:var(--text); font-size:11px; font-weight:900; letter-spacing:.14em; background:var(--row-2); border-radius:0 0 11px 0; padding:8px 0; } .adjust { height:34px; border:0; padding:0; display:flex; align-items:center; justify-content:center; background:var(--salmon); color:#141014; font-size:26px; line-height:1; font-weight:700; cursor:pointer; } .adjust:first-child { border-radius:0 0 0 11px; } .adjust:last-child { border-radius:0 11px 0 0; } .adjust:disabled { background:#5c454b; color:#8c7f83; cursor:not-allowed; } .service-error { background:#4a2228; color:#ffd4cc; font-size:10px; padding:5px 10px; }
-.conditions-panel,.forecast-panel { --panel:var(--lilac); } .conditions { padding:9px 10px; min-height:62px; align-items:center; display:grid; grid-template-columns:repeat(3,1fr); gap:8px; } .conditions b { color:var(--text); font-size:13px; } .conditions small { display:block; margin-top:3px; color:var(--text-2); letter-spacing:.05em; font-size:8.5px; font-weight:900; } .forecast-panel { display:flex; flex-direction:column; } .forecast { padding:7px 9px; display:grid; grid-template-columns:repeat(5,1fr); gap:5px; } .daily .forecast { grid-template-columns:repeat(4,1fr); } .forecast-item { min-width:0; min-height:62px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; background:var(--row); color:var(--text); padding:4px 2px; } .forecast-item span,.forecast-item small,.forecast-item em { color:var(--text-2); font-size:9px; font-weight:850; letter-spacing:.04em; } .forecast-item span { font-size:9.5px; } .forecast-item em { color:var(--fc-ink); font-style:normal; } .forecast-item i { color:var(--lilac-ink); font-style:normal; font-size:21px; line-height:1; } .forecast-item b { font-size:15px; } .forecast-empty { grid-column:1 / -1; color:var(--text-2); font-size:11px; letter-spacing:.04em; text-align:center; padding:4px 6px; }
+.climate-weather-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; align-items:stretch; } .climate-weather-row .panel { display:flex; flex-direction:column; } .climate-weather-row .tab { font-size:8px; letter-spacing:.06em; padding-right:5px; } .climate-weather-row .tab span { padding-left:9px; white-space:nowrap; }
+.climate-panel { --panel:var(--salmon); } .climate-body { flex:1; padding:10px 8px 8px; display:flex; flex-direction:column; justify-content:space-between; gap:9px; } .climate-hero strong { display:block; color:var(--text); font-size:38px; line-height:.95; letter-spacing:-.04em; } .climate-hero em { display:block; font-style:normal; color:var(--salmon-ink); font-size:8px; font-weight:900; letter-spacing:.16em; margin-top:5px; } .climate-controls { display:grid; grid-template-columns:32px minmax(0,1fr) 32px; gap:4px; align-items:center; } .climate-setpoint { min-width:0; text-align:center; color:var(--text); font-size:8px; font-weight:900; letter-spacing:.05em; white-space:nowrap; background:var(--row-2); border-radius:0 0 9px 0; padding:8px 1px; } .adjust { height:32px; border:0; padding:0; display:flex; align-items:center; justify-content:center; background:var(--salmon); color:#141014; font-size:23px; line-height:1; font-weight:700; cursor:pointer; } .adjust:first-child { border-radius:0 0 0 9px; } .adjust:last-child { border-radius:0 9px 0 0; } .adjust:disabled { background:#5c454b; color:#8c7f83; cursor:not-allowed; } .service-error { background:#4a2228; color:#ffd4cc; font-size:9px; padding:4px 7px; }
+.conditions-panel,.forecast-panel { --panel:var(--lilac); } .outside-stack { flex:1; display:flex; flex-direction:column; padding:6px 8px 7px; gap:3px; } .outside-reading { flex:1; min-height:25px; display:flex; align-items:center; justify-content:space-between; gap:5px; padding:4px 6px; background:var(--row); } .outside-reading small { color:var(--text-2); font-size:7.5px; font-weight:900; letter-spacing:.05em; } .outside-reading b { color:var(--text); font-size:10.5px; white-space:nowrap; } .pressure-arrow { display:inline-block; min-width:10px; font-size:15px; line-height:.7; font-weight:950; vertical-align:-1px; } .pressure-arrow.rising { color:var(--mint-ink); } .pressure-arrow.falling { color:var(--salmon-ink); } .forecast-panel { display:flex; flex-direction:column; } .forecast { padding:7px 9px; display:grid; grid-template-columns:repeat(5,1fr); gap:5px; } .daily .forecast { grid-template-columns:repeat(4,1fr); } .forecast-item { min-width:0; min-height:62px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; background:var(--row); color:var(--text); padding:4px 2px; } .forecast-item span,.forecast-item small,.forecast-item em { color:var(--text-2); font-size:9px; font-weight:850; letter-spacing:.04em; } .forecast-item span { font-size:9.5px; } .forecast-item em { color:var(--fc-ink); font-style:normal; } .forecast-item i { color:var(--lilac-ink); font-style:normal; font-size:21px; line-height:1; } .forecast-item b { font-size:15px; } .forecast-empty { grid-column:1 / -1; color:var(--text-2); font-size:11px; letter-spacing:.04em; text-align:center; padding:4px 6px; }
 .lights-panel { --panel:var(--mint); } .lights { display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:5px; padding:8px; } .light-chip { min-width:0; display:flex; align-items:center; gap:8px; background:var(--row); padding:7px 9px; } .light-chip b { flex:none; width:8px; height:20px; background:var(--mint-ink); } .light-chip span { min-width:0; color:var(--text); font-size:11px; font-weight:800; letter-spacing:.02em; overflow-wrap:anywhere; } .lights-empty { color:var(--text-2); font-size:11px; letter-spacing:.04em; padding:2px 6px; }
 .feed-panel { --panel:var(--gold); } .feed { padding:9px 11px; color:var(--text); font-family:"Arial Narrow","Roboto Condensed","Helvetica Neue Condensed",sans-serif; font-stretch:condensed; font-size:13.5px; font-weight:600; line-height:1.5; letter-spacing:.03em; text-transform:none; } .feed p { margin:0 0 3px; } .feed p:last-child { margin-bottom:0; } .feed-meta { margin-top:5px; color:var(--text-2); font-size:10.5px; font-weight:800; letter-spacing:.14em; } .feed-panel.word .feed { font-weight:560; }
 .footer { display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--apricot); min-height:46px; padding:0 20px; color:var(--on-header-dim); font-size:11px; font-weight:950; letter-spacing:.18em; } .footer .footer-code { color:var(--on-header); }
