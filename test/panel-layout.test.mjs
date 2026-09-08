@@ -92,6 +92,14 @@ test("camera stream elements persist across renders so feeds never restart (flic
   assert.match(source, /<div class="cameras" data-cameras><\/div>/);
 });
 
+test("hls player props never assign entityid before hass exists (black-frame fix)", () => {
+  assert.match(source, /_pushCameraProps\(\)/);
+  assert.match(source, /if \(!this\._hass\) return/);
+  assert.match(source, /if \(player\.entityid !== entity\)/);
+  assert.match(source, /player\.hass = this\._hass; \/\/ hass FIRST/);
+  assert.match(source, /else if \(player\.hass !== this\._hass\)/);
+});
+
 test("camera tile tap toggles the same persistent stream into and out of a magnified overlay", () => {
   assert.match(source, /this\._expandedCamera = null/);
   assert.match(source, /_toggleCameraZoom\(entity\)/);

@@ -15,7 +15,7 @@ import {
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.19";
+const VERSION = "0.1.20";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
 const CAMERA_FAILED = new Set(["unknown", "unavailable", "none", "", "off", "unavailable"]);
 const SUPPORTED_THEMES = new Set(["lcars", "cinnamoroll", "cinnamoroll-dark"]);
@@ -244,9 +244,16 @@ export class LcarsHomePanel extends HTMLElement {
   }
 
   _pushCameraProps() {
+    if (!this._hass) return; // never assign entityid before hass exists: the fetch
+                             // would throw on this.hass.config and never retry
     this.shadowRoot.querySelectorAll("ha-hls-player[data-camera]").forEach((player) => {
-      player.hass = this._hass;                 // hass FIRST: ha-hls-player fetches its
-      player.entityid = player.dataset.camera;  // URL on entityid change and needs hass set
+      const entity = player.dataset.camera;
+      if (player.entityid !== entity) {
+        player.hass = this._hass; // hass FIRST: ha-hls-player fetches its
+        player.entityid = entity; // URL on entityid change and needs hass set
+      } else if (player.hass !== this._hass) {
+        player.hass = this._hass; // keep hass fresh without triggering a refetch
+      }
     });
   }
 
