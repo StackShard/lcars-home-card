@@ -143,6 +143,13 @@ test("failed cameras render a placeholder glyph plus last-good frame", () => {
   assert.match(source, /\.camera-still/);
 });
 
+test("weather glyphs use recognizable moon and partly-cloudy symbols, never ambiguous half circles", () => {
+  assert.match(source, /"clear-night": "☾"/);
+  assert.match(source, /partlycloudy: "⛅"/);
+  assert.doesNotMatch(source, /"clear-night": "◐"/);
+  assert.doesNotMatch(source, /partlycloudy: "◒"/);
+});
+
 test("hourly forecast labels each tile from its own datetime so times increment", () => {
   assert.match(source, /formatTime\(entry\.datetime, "en-CA", tz\)/);
   assert.match(source, /classifyForecast/);

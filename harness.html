@@ -62,8 +62,9 @@
       callService: () => Promise.resolve(),
     };
 
+    const selectedTheme = new URLSearchParams(window.location.search).get("theme") ?? "cinnamoroll";
     el.setConfig({
-      theme: "cinnamoroll",
+      theme: selectedTheme,
       entities: {
         climate: "climate.family_room_thermostat",
         weather: "weather.forecast_home",

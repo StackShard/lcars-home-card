@@ -15,7 +15,7 @@ import {
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.16";
+const VERSION = "0.1.17";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
 const CAMERA_FAILED = new Set(["unknown", "unavailable", "none", "", "off", "unavailable"]);
 
@@ -79,7 +79,7 @@ function formatCalendarTime(value, timeZone) {
 
 function conditionGlyph(condition) {
   const glyphs = {
-    sunny: "☀", "clear-night": "◐", partlycloudy: "◒", cloudy: "☁", rainy: "☂",
+    sunny: "☀", "clear-night": "☾", partlycloudy: "⛅", cloudy: "☁", rainy: "☂",
     pouring: "☂", snowy: "✳", lightning: "ϟ", fog: "≈", windy: "≋",
   };
   return glyphs[condition] ?? "•";

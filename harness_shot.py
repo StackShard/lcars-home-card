@@ -4,7 +4,8 @@ import asyncio, base64, json, sys, urllib.request
 from pathlib import Path
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/harness_shot.png")
-URL = "http://127.0.0.1:8124/harness.html"
+THEME = sys.argv[2] if len(sys.argv) > 2 else "cinnamoroll"
+URL = f"http://127.0.0.1:8124/harness.html?theme={THEME}"
 
 async def main():
     import websockets
