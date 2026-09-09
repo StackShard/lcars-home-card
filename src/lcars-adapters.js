@@ -114,12 +114,15 @@ export function formatTime(value, locale = "en-CA", timezone) {
   if (Number.isNaN(Date.parse(value))) return "--";
   const parts = new Intl.DateTimeFormat(locale, {
     hour: "numeric",
+    minute: "2-digit",
     hour12: true,
     timeZone: timezone,
   }).formatToParts(new Date(value));
   const hour = parts.find((part) => part.type === "hour")?.value ?? "--";
+  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
   const period = parts.find((part) => part.type === "dayPeriod")?.value?.replace(/\./g, "").toUpperCase() ?? "";
-  return `${hour} ${period}`.trim();
+  // On the hour stays compact ("5 PM"); partial hours show minutes ("5:45 PM").
+  return `${minute === "00" ? hour : `${hour}:${minute}`} ${period}`.trim();
 }
 
 export function formatDay(value, locale = "en-CA", timezone) {
