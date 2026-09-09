@@ -16,7 +16,7 @@ import {
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.22";
+const VERSION = "0.1.23";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
 const CAMERA_FAILED = new Set(["unknown", "unavailable", "none", "", "off", "unavailable"]);
 const SUPPORTED_THEMES = new Set(["lcars", "cinnamoroll", "cinnamoroll-dark"]);

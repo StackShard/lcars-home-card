@@ -163,13 +163,10 @@ test("conditionLabel and hvacLabel give readable sentence-case labels", () => {
   assert.equal(hvacLabel("off"), "Off");
 });
 
-test("formatTime produces a compact local clock label", () => {
-  assert.equal(formatTime("2026-09-07T19:00:00Z", "en-CA", "America/Toronto"), "3 PM");
-  assert.equal(formatTime("2026-09-08T16:00:00Z", "en-CA", "America/Toronto"), "12 PM");
-  assert.equal(formatTime("2026-09-08T17:00:00Z", "en-CA", "America/Toronto"), "1 PM");
-});
-
-test("formatTime keeps minutes on partial hours (calendar fix)", () => {
+test("formatTime produces a uniform clock label with minutes always shown", () => {
+  assert.equal(formatTime("2026-09-07T19:00:00Z", "en-CA", "America/Toronto"), "3:00 PM");
+  assert.equal(formatTime("2026-09-08T16:00:00Z", "en-CA", "America/Toronto"), "12:00 PM");
+  assert.equal(formatTime("2026-09-08T17:00:00Z", "en-CA", "America/Toronto"), "1:00 PM");
   assert.equal(formatTime("2026-09-07T21:45:00Z", "en-CA", "America/Toronto"), "5:45 PM");
   assert.equal(formatTime("2026-09-07T12:05:00Z", "en-CA", "America/Toronto"), "8:05 AM");
   assert.equal(formatTime("2026-09-08T00:30:00Z", "en-CA", "America/Toronto"), "8:30 PM");

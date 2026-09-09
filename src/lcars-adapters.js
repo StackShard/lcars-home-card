@@ -121,8 +121,8 @@ export function formatTime(value, locale = "en-CA", timezone) {
   const hour = parts.find((part) => part.type === "hour")?.value ?? "--";
   const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
   const period = parts.find((part) => part.type === "dayPeriod")?.value?.replace(/\./g, "").toUpperCase() ?? "";
-  // On the hour stays compact ("5 PM"); partial hours show minutes ("5:45 PM").
-  return `${minute === "00" ? hour : `${hour}:${minute}`} ${period}`.trim();
+  // Always include minutes for a uniform clock label ("3:00 PM", "5:45 PM").
+  return `${hour}:${minute} ${period}`.trim();
 }
 
 export function formatDay(value, locale = "en-CA", timezone) {
