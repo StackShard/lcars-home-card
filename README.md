@@ -2,12 +2,12 @@
 
 A dependency-free custom Lovelace card for a 768×1024 portrait tablet kiosk, with a clear status hierarchy rather than a generic card grid. Ships with the `lcars`, `cinnamoroll`, and `cinnamoroll-dark` themes.
 
-**Current release: [v0.1.20](https://github.com/StackShard/lcars-home-card/releases/tag/v0.1.20)** (source commit `3fee160`). This documentation is an as-built guide to that release. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data-flow and behavior contract and [docs/THEMES.md](docs/THEMES.md) for the theme contract.
+**Current release: [v0.1.21](https://github.com/StackShard/lcars-home-card/releases/tag/v0.1.21)** (source commit `0983b48`). This documentation is an as-built guide to that release. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for internals.
 
 ## Capabilities
 
 - Three security rows (front door, back door, main-floor windows) with alert states reserved for actual open states.
-- Two native Home Assistant camera feeds via `<ha-hls-player>` (HLS/MSE over plain HTTP, not WebRTC), with persistent tiles that never restart the stream on re-render, and tap-to-magnify into a fixed overlay.
+- Two native Home Assistant camera feeds via `<ha-hls-player>` (HLS/MSE over plain HTTP, not WebRTC), with persistent tiles that never restart the stream on re-render, tap-to-magnify into a fixed overlay, a watchdog that self-heals a dead stream session by renegotiating with backoff, and a degraded still-frame fallback so a lost session shows the last-good image instead of a black box.
 - A full local-day calendar fetched through HA's authenticated frontend API, including all-day events and dimmed past events.
 - Hourly (5 tile) and daily (4 tile) weather forecast strips from `weather/subscribe_forecast`, with real provider precipitation amounts.
 - Direct, clamped `climate.set_temperature` controls with dead-band-safe step handling.
@@ -22,7 +22,7 @@ No external font, animation, framework, build step, or custom-card dependency. V
 Always pin a release tag - never `@main`. The URL below is the current release:
 
 ```yaml
-url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.20/src/lcars-home-panel.js
+url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.21/src/lcars-home-panel.js
 type: module
 ```
 
@@ -73,7 +73,7 @@ Full details, fallback behavior, and failure modes: [docs/ARCHITECTURE.md](docs/
 ## Development
 
 ```text
-npm test          # 37 adapter unit tests + source-contract layout tests
+npm test          # 40 adapter unit tests + source-contract layout tests
 npm run check     # node --check on both src files
 ```
 

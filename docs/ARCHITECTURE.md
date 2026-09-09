@@ -1,6 +1,6 @@
 # LCARS Home Card - Architecture (as-built)
 
-As-built contract for **v0.1.20**, source commit `3fee160`. This document describes what the shipped code actually does; where behavior is surprising, the reason is noted. Camera playback moved from WebRTC (`<ha-camera-stream>`) to HLS (`<ha-hls-player>`) in v0.1.19, and v0.1.20 fixed a stream-fetch ordering bug in the HLS handoff; both are covered in the camera subsystem section below.
+As-built contract for **v0.1.21**, source commit `0983b48`. This document describes what the shipped code actually does; where behavior is surprising, the reason is noted. Camera playback moved from WebRTC (`<ha-camera-stream>`) to HLS (`<ha-hls-player>`) in v0.1.19, v0.1.20 fixed a stream-fetch ordering bug in the HLS handoff, and v0.1.21 added a watchdog that self-heals dead stream sessions with a degraded still-frame fallback; all are covered in the camera subsystem section below.
 
 ## Module layout
 
@@ -92,7 +92,7 @@ Every later state push calls `_updatePanels`, which writes ONLY the `[data-panel
 
 ## Camera subsystem (HLS player, persistence, fixed overlay)
 
-This is the most behavior-rich part; source-contract tests pin it. v0.1.15 fixed a flicker bug where streams restarted on every render; v0.1.19 replaced the transport (WebRTC → HLS) for kiosk resilience; v0.1.20 fixed a property-ordering bug in the HLS handoff (below).
+This is the most behavior-rich part; source-contract tests pin it. v0.1.15 fixed a flicker bug where streams restarted on every render; v0.1.19 replaced the transport (WebRTC → HLS) for kiosk resilience; v0.1.20 fixed a property-ordering bug in the HLS handoff; v0.1.21 added a dead-session watchdog with degraded still-frame fallback and backoff renegotiation (below).
 
 ### Why HLS, not WebRTC (v0.1.19)
 
@@ -117,6 +117,18 @@ The player distinguishes "source unreachable" (a real black screen that no card 
 
 - Entity state `unknown`/`unavailable`/`none`/`""`/`off` → `cameraOfflineMarkup` (glyph + last-good frame + `OFFLINE` label). This is a card-level, deterministic branch.
 - Entity reports `streaming`/`idle` but HA's `camera/stream` websocket call never returns a playlist URL (e.g. the camera integration's signed stream session expired at the provider) → the player's `_url` stays null and the tile stays dark. Nothing in the card can render pixels the backend won't serve; the fix is provider-side (reload the camera integration so it re-negotiates stream credentials). Diagnosing this exact case is an operator runbook procedure (see the lcars-dashboard-workflow skill), not a card behavior.
+
+### Dead-session watchdog and degraded fallback (v0.1.21)
+
+A third failure mode surfaced in production: a player mounts a *healthy* session, then HA's `stream` worker for that session dies later (a provider blip that outlasts worker retries). The player keeps retrying its dead playlist URL - clock frozen, `readyState 2`, `_error` "Stream network error" - and nothing re-negotiates because the entity state never changed. Before v0.1.21 that meant a black tile until a human reloaded the page.
+
+v0.1.21 adds a watchdog that closes the loop without any card state change or page reload:
+
+- `_startCameraWatchdog()` runs a 10 s interval (`CAMERA_WATCH_MS`) while connected; `setConfig` and `connectedCallback` both start it (idempotent), `disconnectedCallback` stops it. Per-entity health lives in `this._cameraHealth` (seeded by `_mountCameras`) with `{ since, lastTime, attempts, retryAt, degradedAt }`.
+- Each tick reads the player's `_error` and the underlying `<video>` (`readyState`, frozen `currentTime`). A player is unhealthy when `_error` is set, or when it has a URL but the video sits at `readyState ≤ 2` with an un-advancing clock. Unhealthy time accrues from `health.since`; after `CAMERA_STALL_MS` (25 s) of sustained stall the tile **degrades**.
+- **Degraded mode** (`health.degradedAt` set) renders `cameraDegradedMarkup`: the last-good `entity_picture` frame as a still (full-opacity, gold `RECONNECTING` label) with no live player attached - never a black box. The camera tile cache key encodes the mode (`entity|degraded` vs `entity|<state>`), so the mode flip remounts cleanly.
+- **Renegotiation with backoff**: the watchdog keeps the tile degraded for a backoff delay computed by `_cameraRetryDelay(attempt)` = min(`CAMERA_RETRY_BASE_MS` 30 s × 2^attempt, `CAMERA_RETRY_MAX_MS` 300 s), then clears `degradedAt` and remounts a fresh `<ha-hls-player>`. The fresh player's `entityid` assignment triggers a new `camera/stream` fetch → new session token. If the new session plays, health resets (attempts → 0). If it dies again, the tile re-degrades with the next (longer) backoff.
+- Verified live 2026-09-09: a deliberately stale front-door session (frozen clock, `Stream network error`) self-healed in 64 s - stall detection → degraded still at 25 s → backoff → fresh player at ~60 s → `readyState 4`, clock advancing, new session token - with zero page reloads and no impact on the healthy back-door stream.
 
 ## Layout target and geometry
 
@@ -144,6 +156,7 @@ The player distinguishes "source unreachable" (a real black screen that no card 
 | climate service rejects | inline `Climate command did not complete.` banner |
 | camera entity offline (`unknown`/`unavailable`/`none`/`""`/`off`) | glyph tile + last-good frame (if any), label `OFFLINE` |
 | camera entity up but `camera/stream` yields no URL (provider session expired) | tile stays dark; fix is provider-side (reload the camera integration), not card behavior |
+| camera session died mid-playback (entity still `streaming`, player `_error`, frozen clock) | watchdog degrades tile to last-good still (`RECONNECTING`) after 25 s, then renegotiates a fresh session with exponential backoff (30 s → 300 s cap) |
 | weather/climate/security unavailable | `--`, `OFFLINE`, `UNAVAILABLE` respectively |
 | feeds empty | nightly-update fallback sentences |
 | no lights on | `No lights are on right now.` |
@@ -152,11 +165,11 @@ The player distinguishes "source unreachable" (a real black screen that no card 
 
 ## Testing
 
-- `npm test` - 37 tests, zero npm dependencies:
-  - `adapters.test.mjs`: 16 unit tests for every adapter - feed formatting/emoji stripping, security normalization, lights scan, camera markup (asserts `<ha-hls-player>` is emitted, no proxy-token markup), setpoint clamping/step inference, precipitation formatting, forecast filtering + cadence classification, pressure deadband, label maps, time formatting.
-  - `panel-layout.test.mjs`: 21 source-contract tests asserting layout invariants directly against the source text - footer-to-rail merge, bare decorative rail, raised type scale, panel ordering, theme set + palette values, camera persistence (`_cameraTiles`, `replaceChildren`, `_mountCameras`), the v0.1.20 `_pushCameraProps` hass guard (never assign entityid before hass exists), overlay toggle, pressure history call, glyph choices (no ambiguous half-circle glyphs), sentence-case body copy.
+- `npm test` - 40 tests, zero npm dependencies:
+  - `adapters.test.mjs`: 17 unit tests for every adapter - feed formatting/emoji stripping, security normalization, lights scan, camera markup (asserts `<ha-hls-player>` is emitted for live tiles and never emitted for offline/degraded tiles, no proxy-token markup), setpoint clamping/step inference, precipitation formatting, forecast filtering + cadence classification, pressure deadband, label maps, time formatting.
+  - `panel-layout.test.mjs`: 23 source-contract tests asserting layout invariants directly against the source text - footer-to-rail merge, bare decorative rail, raised type scale, panel ordering, theme set + palette values, camera persistence (`_cameraTiles`, `replaceChildren`, `_mountCameras`), the v0.1.20 `_pushCameraProps` hass guard (never assign entityid before hass exists), the v0.1.21 watchdog (interval, stall threshold, degrade, backoff, degraded still tile), overlay toggle, pressure history call, glyph choices (no ambiguous half-circle glyphs), sentence-case body copy.
 - `npm run check` - `node --check` on both source files.
-- Current status: **37/37 pass** at v0.1.20.
+- Current status: **40/40 pass** at v0.1.21.
 
 ## Local harness
 
@@ -167,5 +180,5 @@ The player distinguishes "source unreachable" (a real black screen that no card 
 ## Release and immutability
 
 - Publish by tagging: `git tag vX.Y.Z` on a commit where the `VERSION` constant in `src/lcars-home-panel.js` matches the tag.
-- The resource URL and the mascot URL both derive from that tag (`@v0.1.20/…`), so a release ships a consistent, immutable pair. Never reference `@main` for a dashboard resource; never rewrite a tagged asset (jsDelivr caches tag-pinned content).
+- The resource URL and the mascot URL both derive from that tag (`@v0.1.21/…`), so a release ships a consistent, immutable pair. Never reference `@main` for a dashboard resource; never rewrite a tagged asset (jsDelivr caches tag-pinned content).
 - Bumping `VERSION` changes the footer code and the mascot URL together; the source-contract tests pin the mascot URL shape.
