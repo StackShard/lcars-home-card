@@ -2,7 +2,7 @@
 
 A dependency-free custom Lovelace card for a 768×1024 portrait tablet kiosk, with a clear status hierarchy rather than a generic card grid. Ships with the `lcars`, `cinnamoroll`, and `cinnamoroll-dark` themes.
 
-**Current release: [v0.1.22](https://github.com/StackShard/lcars-home-card/releases/tag/v0.1.22)** (source commit `d11ca24`). This documentation is an as-built guide to that release. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for internals.
+**Current release: [v0.1.23](https://github.com/StackShard/lcars-home-card/releases/tag/v0.1.23)** (source commit `6b5771d`). This documentation is an as-built guide to that release. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for internals.
 
 ## Capabilities
 
@@ -22,7 +22,7 @@ No external font, animation, framework, build step, or custom-card dependency. V
 Always pin a release tag - never `@main`. The URL below is the current release:
 
 ```yaml
-url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.22/src/lcars-home-panel.js
+url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.23/src/lcars-home-panel.js
 type: module
 ```
 
@@ -73,7 +73,7 @@ Full details, fallback behavior, and failure modes: [docs/ARCHITECTURE.md](docs/
 ## Development
 
 ```text
-npm test          # 41 adapter unit tests + source-contract layout tests
+npm test          # 40 adapter unit tests + source-contract layout tests
 npm run check     # node --check on both src files
 ```
 

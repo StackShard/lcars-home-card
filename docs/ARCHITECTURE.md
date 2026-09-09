@@ -1,6 +1,6 @@
 # LCARS Home Card - Architecture (as-built)
 
-As-built contract for **v0.1.22**, source commit `d11ca24`. This document describes what the shipped code actually does; where behavior is surprising, the reason is noted. Camera playback moved from WebRTC (`<ha-camera-stream>`) to HLS (`<ha-hls-player>`) in v0.1.19, v0.1.20 fixed a stream-fetch ordering bug in the HLS handoff, v0.1.21 added a watchdog that self-heals dead stream sessions with a degraded still-frame fallback, and v0.1.22 fixed calendar event times dropping minutes; all are covered in the sections below.
+As-built contract for **v0.1.23**, source commit `6b5771d`. This document describes what the shipped code actually does; where behavior is surprising, the reason is noted. Camera playback moved from WebRTC (`<ha-camera-stream>`) to HLS (`<ha-hls-player>`) in v0.1.19, v0.1.20 fixed a stream-fetch ordering bug in the HLS handoff, v0.1.21 added a watchdog that self-heals dead stream sessions with a degraded still-frame fallback, v0.1.22 fixed calendar event times dropping minutes, and v0.1.23 made all clock labels uniformly include minutes; each is covered in the sections below.
 
 ## Module layout
 
@@ -48,7 +48,7 @@ Every later state push calls `_updatePanels`, which writes ONLY the `[data-panel
 - `_ensureCalendar` computes a key of `${calendarEntity}:${isoAtLocalMidnight(tz)}` - the fetch runs once per local day (or entity change), not on every state push. Local midnight is computed from `Intl.DateTimeFormat` parts plus an offset correction, making it DST-safe.
 - Request: `hass.callApi("GET", "calendars/<entity>?start=<today 00:00>&end=<tomorrow 00:00>)` - the frontend's authenticated API; no tokens or credentials travel through the card source.
 - Events are sorted by start (`dateTime` or all-day `date`). Entries without a `dateTime` render as `ALL DAY`. Events whose `end.dateTime` is in the past render dimmed (`.event.past`). Empty list → `No family events today.`; API failure → `Calendar unavailable.`
-- Event times use `formatTime` via `formatCalendarTime`. v0.1.22: `formatTime` is minute-aware - a partial-hour start renders `5:45 PM`, an on-the-hour start stays compact (`3 PM`) - so a 5:45 PM event no longer displays as `5 PM`. The hourly forecast strip shares `formatTime`, and because forecast entries always land on the hour its compact labels are unaffected (verified live: `hours` still `["1 AM", "2 AM", "3 AM"]`). Regression-tested in `adapters.test.mjs` (on-the-hour + partial-hour cases).
+- Event times use `formatTime` via `formatCalendarTime`. Since v0.1.23 `formatTime` always includes minutes, so every clock label on the card is uniform: `3:00 PM`, `5:45 PM`, `12:00 AM` - no compact on-the-hour forms. The hourly forecast strip shares `formatTime`, so its labels carry minutes too (`1:00 AM, 2:00 AM, 3:00 AM`), verified to fit the tile geometry with no clipping. Regression-tested in `adapters.test.mjs`.
 
 ### Pressure trend (3-hour recorder + deadband)
 
@@ -166,11 +166,11 @@ v0.1.21 adds a watchdog that closes the loop without any card state change or pa
 
 ## Testing
 
-- `npm test` - 41 tests, zero npm dependencies:
-  - `adapters.test.mjs`: 18 unit tests for every adapter - feed formatting/emoji stripping, security normalization, lights scan, camera markup (asserts `<ha-hls-player>` is emitted for live tiles and never emitted for offline/degraded tiles, no proxy-token markup), setpoint clamping/step inference, precipitation formatting, forecast filtering + cadence classification, pressure deadband, label maps, time formatting (compact on-the-hour, minute-aware partial hours since v0.1.22).
+- `npm test` - 40 tests, zero npm dependencies:
+  - `adapters.test.mjs`: 17 unit tests for every adapter - feed formatting/emoji stripping, security normalization, lights scan, camera markup (asserts `<ha-hls-player>` is emitted for live tiles and never emitted for offline/degraded tiles, no proxy-token markup), setpoint clamping/step inference, precipitation formatting, forecast filtering + cadence classification, pressure deadband, label maps, time formatting (uniform clock labels always including `:MM` since v0.1.23).
   - `panel-layout.test.mjs`: 23 source-contract tests asserting layout invariants directly against the source text - footer-to-rail merge, bare decorative rail, raised type scale, panel ordering, theme set + palette values, camera persistence (`_cameraTiles`, `replaceChildren`, `_mountCameras`), the v0.1.20 `_pushCameraProps` hass guard (never assign entityid before hass exists), the v0.1.21 watchdog (interval, stall threshold, degrade, backoff, degraded still tile), overlay toggle, pressure history call, glyph choices (no ambiguous half-circle glyphs), sentence-case body copy.
 - `npm run check` - `node --check` on both source files.
-- Current status: **41/41 pass** at v0.1.22.
+- Current status: **40/40 pass** at v0.1.23.
 
 ## Local harness
 
@@ -181,5 +181,5 @@ v0.1.21 adds a watchdog that closes the loop without any card state change or pa
 ## Release and immutability
 
 - Publish by tagging: `git tag vX.Y.Z` on a commit where the `VERSION` constant in `src/lcars-home-panel.js` matches the tag.
-- The resource URL and the mascot URL both derive from that tag (`@v0.1.22/…`), so a release ships a consistent, immutable pair. Never reference `@main` for a dashboard resource; never rewrite a tagged asset (jsDelivr caches tag-pinned content).
+- The resource URL and the mascot URL both derive from that tag (`@v0.1.23/…`), so a release ships a consistent, immutable pair. Never reference `@main` for a dashboard resource; never rewrite a tagged asset (jsDelivr caches tag-pinned content).
 - Bumping `VERSION` changes the footer code and the mascot URL together; the source-contract tests pin the mascot URL shape.

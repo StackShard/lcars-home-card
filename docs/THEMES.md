@@ -1,6 +1,6 @@
 # LCARS Home Card - Theme Contract (as-built)
 
-The theme contract for **v0.1.22** (`d11ca24`). Themes are pure CSS-variable swaps plus a shared "character styling" flag; nothing in the render logic branches per theme beyond the mascot injection. Palettes were untouched by v0.1.19-v0.1.22 (camera transport, render-architecture, watchdog, and time-format changes only), so the tables below are unchanged from v0.1.18.
+The theme contract for **v0.1.23** (`6b5771d`). Themes are pure CSS-variable swaps plus a shared "character styling" flag; nothing in the render logic branches per theme beyond the mascot injection. Palettes were untouched by v0.1.19-v0.1.23 (camera transport, render-architecture, watchdog, and time-format changes only), so the tables below are unchanged from v0.1.18.
 
 ## Theme keys
 
