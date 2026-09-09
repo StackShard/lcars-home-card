@@ -1,6 +1,6 @@
 # LCARS Home Card - Architecture (as-built)
 
-As-built contract for **v0.1.18**, source commit `8a45eeaf79af1f972c20f521f283651e22475993`. This document describes what the shipped code actually does; where behavior is surprising, the reason is noted.
+As-built contract for **v0.1.20**, source commit `3fee160`. This document describes what the shipped code actually does; where behavior is surprising, the reason is noted. Camera playback moved from WebRTC (`<ha-camera-stream>`) to HLS (`<ha-hls-player>`) in v0.1.19, and v0.1.20 fixed a stream-fetch ordering bug in the HLS handoff; both are covered in the camera subsystem section below.
 
 ## Module layout
 
@@ -19,15 +19,19 @@ No build step. The deployed artifact is `src/lcars-home-panel.js` itself, served
 
 ## Component lifecycle
 
-- `constructor` - opens an `open` shadow root, seeds state, and installs two delegated listeners on the shadow root: `click` (camera tile → zoom) and `keydown` (Enter/Space on a camera tile, Escape to close the overlay). Event delegation means these survive full innerHTML re-renders.
-- `setConfig(config)` - deep-merges `{ ...DEFAULTS, ...(config?.entities ?? {}) }`, then resets the camera tile cache, expanded-camera state, and pressure-trend key, tears down all subscriptions, and renders. Called once per dashboard config load.
-- `hass` setter - stores the HA object, runs the three "ensure" passes (forecast subscriptions, calendar, pressure trend), and renders. Called on every HA state push.
-- `connectedCallback` - renders. `disconnectedCallback` - tears down all subscriptions.
+- `constructor` - opens an `open` shadow root, seeds state, and installs two delegated listeners on the shadow root: `click` (camera tile → zoom) and `keydown` (Enter/Space on a camera tile, Escape to close the overlay). Event delegation means these survive panel updates.
+- `setConfig(config)` - deep-merges `{ ...DEFAULTS, ...(config?.entities ?? {}) }`, then resets the camera tile cache, expanded-camera state, and pressure-trend key, tears down all subscriptions, and calls `_buildShell`. Called once per dashboard config load.
+- `hass` setter - stores the HA object, runs the three "ensure" passes (forecast subscriptions, calendar, pressure trend), and calls `_updatePanels`. Called on every HA state push.
+- `connectedCallback` - calls `_buildShell`. `disconnectedCallback` - tears down all subscriptions.
 - `getCardSize()` - returns `16`.
-- Render guard - with no config or no `hass`, the shadow root shows `LCARS LINK ESTABLISHING` with the stylesheet, nothing else.
+- Render guard - with no config, `_buildShell` falls through to `_renderLoading`: the shadow root shows `LCARS LINK ESTABLISHING` with the stylesheet, nothing else. With a config but no `hass` yet, the shell is built but `_updatePanels` no-ops until the first `hass` push.
 - The element is registered only if `customElements.get("lcars-home-panel")` is empty; `window.customCards` gets `{ type: "lcars-home-panel", name: "LCARS Home Panel", preview: false }`.
 
-Rendering is one big template literal assigned to `shadowRoot.innerHTML` (stylesheet included), followed by three post-passes: `_mountCameras` (DOM node reconciliation), assigning `hass`/`stateObj` to every `<ha-camera-stream>`, and wiring the climate `−`/`+` buttons. All dynamic text passes `esc()` (HTML-escaping of `& < > ' "`); adapter-generated markup escapes attributes the same way.
+## Render architecture (v0.1.19+: shell built once, panels updated in place)
+
+The shell is constructed exactly once per `setConfig`/`connectedCallback` via `_buildShell`: the full template literal (stylesheet, rail, masthead/columns/panels, camera overlay, footer, mascot) is assigned to `shadowRoot.innerHTML`, then `_mountCameras` reconciles the persistent camera tiles and `_updatePanels` fills every `[data-panel]` container. All dynamic text passes `esc()` (HTML-escaping of `& < > ' "`); adapter-generated markup escapes attributes the same way.
+
+Every later state push calls `_updatePanels`, which writes ONLY the `[data-panel]` containers (`_setPanel(name, html)`) - never the whole shadow root. This is deliberate: a full `innerHTML` rebuild would destroy and recreate the live `<ha-hls-player>` elements, and each `disconnectedCallback` would kill its stream. Panels that change frequently (hourly weather, forecast) are separate `[data-panel]` containers; cameras and the climate buttons are reconciled separately (see below). `_updatePanels` also re-wires the climate `−`/`+` buttons after writing the climate container.
 
 ## Data flow by domain
 
@@ -86,14 +90,33 @@ Rendering is one big template literal assigned to `shadowRoot.innerHTML` (styles
 - The fuel panel derives a `LAST POLLED h:mm AM/PM` stamp from `last_updated` in the HA time zone (only when the state is present and not unavailable).
 - Entities never enter the DOM unescaped - feeds are text-only by construction.
 
-## Camera subsystem (native HA stream, persistence, fixed overlay)
+## Camera subsystem (HLS player, persistence, fixed overlay)
 
-This is the most behavior-rich part; source-contract tests pin it (v0.1.15 fixed a flicker bug where streams restarted on every render).
+This is the most behavior-rich part; source-contract tests pin it. v0.1.15 fixed a flicker bug where streams restarted on every render; v0.1.19 replaced the transport (WebRTC → HLS) for kiosk resilience; v0.1.20 fixed a property-ordering bug in the HLS handoff (below).
 
-- **Markup.** `cameraStreamMarkup` emits `<ha-camera-stream class="camera-stream" data-camera=…>` - HA's own element - with HA handling the authenticated live feed; there is no proxy-token markup. The tile wrapper is `role="button" tabindex="0" aria-expanded="false"`. `cameraOfflineMarkup` (used when the camera state is `unknown`/`unavailable`/`none`/`""`/`off`) emits a glyph placeholder (◐) plus an optional last-good frame: `entity_picture` resolved through `hass.hassUrl`, `loading="lazy"`, hidden on load error via `onerror`. Offline tiles never show a black live box.
-- **Persistence.** `_mountCameras` keeps a per-entity cache: `this._cameraTiles[entity] = { key, node }` where `key = ${entity}|${state}`. The render pass calls `container.replaceChildren()` / `expandedMount.replaceChildren()` and re-appends **the same cached DOM node** whenever the key is unchanged - so the `<ha-camera-stream>` element is never recreated while the camera state is stable, and the live feed never restarts. Only a state change rebuilds a tile. The cache and expanded-camera state reset in `setConfig`.
-- **Fixed overlay.** Each `<ha-camera-stream>` also gets `hass` and `stateObj` assigned after every render. Click (delegated) or Enter/Space toggles `_expandedCamera`; the *same persistent node* is then appended into the `[data-camera-expanded]` mount inside `.camera-overlay` - `position:absolute; inset:0; z-index:20`, dimmed with backdrop blur, expanded tile up to 700px wide, 16:9, sky-colored border. `aria-expanded` mirrors the open state and the overlay's `aria-hidden` mirrors it in reverse.
+### Why HLS, not WebRTC (v0.1.19)
+
+v0.1.18 mounted `<ha-camera-stream>`, which prefers WebRTC. A WebRTC camera session is bound to the frontend's websocket connection: when the camera source blips (common with flaky cloud camera feeds), session teardown can throw inside `ha-web-rtc-player` and wedge the page event loop, dropping the websocket that carries every other card update. The kiosk then showed a persistent "Connection lost. Reconnecting." banner until a full app relaunch.
+
+v0.1.19 mounts `<ha-hls-player>` instead. HA's HLS stream is a plain HTTP/MSE segment feed - it has zero websocket coupling, retries/self-heals via hls.js, and a camera blip degrades to a player retry, never a connection death. Two ordering traps were pinned in the same change:
+
+1. **Assign `player.hass` before `player.entityid`.** `ha-hls-player.updated()` fetches its stream URL when `entityid` changes, and the fetch reads `this.hass.config`. If `entityid` lands first with no `hass`, the read throws.
+2. **Never move or rebuild a mounted camera tile during a normal update.** `ha-hls-player.disconnectedCallback` calls `_cleanUp()`, which kills the stream. Tiles persist; only a camera state change rebuilds one.
+
+### Markup and persistence
+
+- **Markup.** `cameraStreamMarkup` emits `<ha-hls-player class="camera-stream" data-camera=… autoplay playsinline muted aria-label=…>` - HA's own HLS element - inside a tile div with `role="button" tabindex="0" aria-expanded="false"` and a `LIVE` label. `cameraOfflineMarkup` (used when the camera state is `unknown`/`unavailable`/`none`/`""`/`off`) emits a glyph placeholder (◐) plus an optional last-good frame: `entity_picture` resolved through `hass.hassUrl`, `loading="lazy"`, hidden on load error via `onerror`. Offline tiles never show a black live box.
+- **Persistence.** `_mountCameras` keeps a per-entity cache: `this._cameraTiles[entity] = { key, node }` where `key = ${entity}|${state}`. When the key is unchanged, the render pass re-appends **the same cached DOM node** to `[data-cameras]`, so the `<ha-hls-player>` element is never recreated while the camera state is stable and the live feed never restarts. Only a state change (or `setConfig`) rebuilds a tile. `_toggleCameraZoom(entity)` flips `_expandedCamera` and re-runs `_mountCameras`, which moves the same cached node into `[data-camera-expanded]` and back; zoom is a class toggle plus `appendChild`, never a remount.
+- **Property handoff (v0.1.20 fix).** `_pushCameraProps` is called after any camera rebuild. Its guard is the fix: it no-ops entirely when `this._hass` is falsy (`if (!this._hass) return;`), because assigning `entityid` before `hass` exists makes the player's `updated()` throw silently (the `isComponentLoaded(this.hass.config, …)` read sits outside its try/catch), leaving `_url` null forever - lit's `updated()` only refires when `entityid` *changes*, so a null-hass first assignment is never retried. When `hass` exists, it assigns `player.hass` first, then `player.entityid` only if it differs from `data-camera`; if `entityid` is unchanged it refreshes `player.hass` alone (keeps the player's hass fresh without triggering a refetch). Regression-tested in `panel-layout.test.mjs` ("never assign entityid before hass exists").
+- **Fixed overlay.** `_syncCameraClasses` toggles `camera-expanded` on the tile and `open`/`aria-hidden` on `[data-camera-overlay]`. The overlay is `position:absolute; inset:0; z-index:20`, dimmed with backdrop blur; the expanded tile renders up to 700px wide, 16:9, sky-colored border. `aria-expanded` mirrors the open state; the overlay's `aria-hidden` mirrors it in reverse.
 - Two entries are hardcoded: `FRONT DOOR` and `BACK DOOR`, mapping to `entities.front_camera` / `entities.back_camera`.
+
+### Camera failure behavior (v0.1.19+)
+
+The player distinguishes "source unreachable" (a real black screen that no card change can fix) from "entity offline" (a handled tile state):
+
+- Entity state `unknown`/`unavailable`/`none`/`""`/`off` → `cameraOfflineMarkup` (glyph + last-good frame + `OFFLINE` label). This is a card-level, deterministic branch.
+- Entity reports `streaming`/`idle` but HA's `camera/stream` websocket call never returns a playlist URL (e.g. the camera integration's signed stream session expired at the provider) → the player's `_url` stays null and the tile stays dark. Nothing in the card can render pixels the backend won't serve; the fix is provider-side (reload the camera integration so it re-negotiates stream credentials). Diagnosing this exact case is an operator runbook procedure (see the lcars-dashboard-workflow skill), not a card behavior.
 
 ## Layout target and geometry
 
@@ -119,7 +142,8 @@ This is the most behavior-rich part; source-contract tests pin it (v0.1.15 fixed
 | calendar API rejects | `Calendar unavailable.` |
 | history/period rejects | pressure direction `unknown`, no arrow, kPa still shown |
 | climate service rejects | inline `Climate command did not complete.` banner |
-| camera offline | glyph tile + last-good frame (if any), label `OFFLINE` |
+| camera entity offline (`unknown`/`unavailable`/`none`/`""`/`off`) | glyph tile + last-good frame (if any), label `OFFLINE` |
+| camera entity up but `camera/stream` yields no URL (provider session expired) | tile stays dark; fix is provider-side (reload the camera integration), not card behavior |
 | weather/climate/security unavailable | `--`, `OFFLINE`, `UNAVAILABLE` respectively |
 | feeds empty | nightly-update fallback sentences |
 | no lights on | `No lights are on right now.` |
@@ -128,11 +152,11 @@ This is the most behavior-rich part; source-contract tests pin it (v0.1.15 fixed
 
 ## Testing
 
-- `npm test` - 36 tests, zero npm dependencies:
-  - `adapters.test.mjs`: 16 unit tests for every adapter - feed formatting/emoji stripping, security normalization, lights scan, camera markup (asserts no proxy-token markup), setpoint clamping/step inference, precipitation formatting, forecast filtering + cadence classification, pressure deadband, label maps, time formatting.
-  - `panel-layout.test.mjs`: 20 source-contract tests asserting layout invariants directly against the source text - footer-to-rail merge, bare decorative rail, raised type scale, panel ordering, theme set + palette values, camera persistence (`_cameraTiles`, `replaceChildren`), overlay toggle, pressure history call, glyph choices (no ambiguous half-circle glyphs), sentence-case body copy.
+- `npm test` - 37 tests, zero npm dependencies:
+  - `adapters.test.mjs`: 16 unit tests for every adapter - feed formatting/emoji stripping, security normalization, lights scan, camera markup (asserts `<ha-hls-player>` is emitted, no proxy-token markup), setpoint clamping/step inference, precipitation formatting, forecast filtering + cadence classification, pressure deadband, label maps, time formatting.
+  - `panel-layout.test.mjs`: 21 source-contract tests asserting layout invariants directly against the source text - footer-to-rail merge, bare decorative rail, raised type scale, panel ordering, theme set + palette values, camera persistence (`_cameraTiles`, `replaceChildren`, `_mountCameras`), the v0.1.20 `_pushCameraProps` hass guard (never assign entityid before hass exists), overlay toggle, pressure history call, glyph choices (no ambiguous half-circle glyphs), sentence-case body copy.
 - `npm run check` - `node --check` on both source files.
-- Current status: **36/36 pass** at v0.1.18.
+- Current status: **37/37 pass** at v0.1.20.
 
 ## Local harness
 
@@ -143,5 +167,5 @@ This is the most behavior-rich part; source-contract tests pin it (v0.1.15 fixed
 ## Release and immutability
 
 - Publish by tagging: `git tag vX.Y.Z` on a commit where the `VERSION` constant in `src/lcars-home-panel.js` matches the tag.
-- The resource URL and the mascot URL both derive from that tag (`@v0.1.18/…`), so a release ships a consistent, immutable pair. Never reference `@main` for a dashboard resource; never rewrite a tagged asset (jsDelivr caches tag-pinned content).
+- The resource URL and the mascot URL both derive from that tag (`@v0.1.20/…`), so a release ships a consistent, immutable pair. Never reference `@main` for a dashboard resource; never rewrite a tagged asset (jsDelivr caches tag-pinned content).
 - Bumping `VERSION` changes the footer code and the mascot URL together; the source-contract tests pin the mascot URL shape.

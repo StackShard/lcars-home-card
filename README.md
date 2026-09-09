@@ -2,12 +2,12 @@
 
 A dependency-free custom Lovelace card for a 768×1024 portrait tablet kiosk, with a clear status hierarchy rather than a generic card grid. Ships with the `lcars`, `cinnamoroll`, and `cinnamoroll-dark` themes.
 
-**Current release: [v0.1.18](https://github.com/StackShard/lcars-home-card/releases/tag/v0.1.18)** (source commit `8a45eeaf79af1f972c20f521f283651e22475993`). This documentation is an as-built guide to that release. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data-flow and behavior contract and [docs/THEMES.md](docs/THEMES.md) for the theme contract.
+**Current release: [v0.1.20](https://github.com/StackShard/lcars-home-card/releases/tag/v0.1.20)** (source commit `3fee160`). This documentation is an as-built guide to that release. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data-flow and behavior contract and [docs/THEMES.md](docs/THEMES.md) for the theme contract.
 
 ## Capabilities
 
 - Three security rows (front door, back door, main-floor windows) with alert states reserved for actual open states.
-- Two native Home Assistant camera streams (`<ha-camera-stream>`), with persistent tiles that never restart the stream on re-render, and tap-to-magnify into a fixed overlay.
+- Two native Home Assistant camera feeds via `<ha-hls-player>` (HLS/MSE over plain HTTP, not WebRTC), with persistent tiles that never restart the stream on re-render, and tap-to-magnify into a fixed overlay.
 - A full local-day calendar fetched through HA's authenticated frontend API, including all-day events and dimmed past events.
 - Hourly (5 tile) and daily (4 tile) weather forecast strips from `weather/subscribe_forecast`, with real provider precipitation amounts.
 - Direct, clamped `climate.set_temperature` controls with dead-band-safe step handling.
@@ -22,7 +22,7 @@ No external font, animation, framework, build step, or custom-card dependency. V
 Always pin a release tag - never `@main`. The URL below is the current release:
 
 ```yaml
-url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.18/src/lcars-home-panel.js
+url: https://cdn.jsdelivr.net/gh/StackShard/lcars-home-card@v0.1.20/src/lcars-home-panel.js
 type: module
 ```
 
@@ -54,7 +54,7 @@ An unknown `theme` value falls back to `lcars`. If `entities` is omitted entirel
 
 - **Weather** subscribes to HA's `weather/subscribe_forecast` frontend message for `hourly` and `daily`; if the provider never pushes, the card falls back to classifying the weather entity's `forecast` attribute by cadence.
 - **Calendar** uses the authenticated `callApi` local-day query, so completed events remain visible (dimmed) until local midnight.
-- **Cameras** are Home Assistant's native `<ha-camera-stream>` with HA handling authenticated live access; offline cameras show a placeholder glyph plus the last-good `entity_picture` frame - never a black live box.
+- **Cameras** use Home Assistant's native `<ha-hls-player>` (HLS over MSE, plain HTTP) - deliberately not `<ha-camera-stream>` WebRTC. HA's HLS streams are not bound to the websocket connection, so a camera blip degrades to a player retry instead of tearing down the connection that carries every other card update. Offline cameras show a placeholder glyph plus the last-good `entity_picture` frame - never a black live box.
 - **Setpoint** commands respect the climate entity's reported `min_temp`, `max_temp`, and `target_temp_step` (with precision inference when HA omits the step), clamped to range.
 - **Pressure trend** compares current pressure against the oldest valid recorder sample from the last 3 hours with a 0.15 hPa deadband (rising/falling/steady).
 
@@ -73,7 +73,7 @@ Full details, fallback behavior, and failure modes: [docs/ARCHITECTURE.md](docs/
 ## Development
 
 ```text
-npm test          # 36 adapter unit tests + source-contract layout tests
+npm test          # 37 adapter unit tests + source-contract layout tests
 npm run check     # node --check on both src files
 ```
 
