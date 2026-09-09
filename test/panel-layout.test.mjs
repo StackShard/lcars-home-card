@@ -100,6 +100,31 @@ test("hls player props never assign entityid before hass exists (black-frame fix
   assert.match(source, /else if \(player\.hass !== this\._hass\)/);
 });
 
+test("camera watchdog degrades a stalled player to a still then renegotiates with backoff", () => {
+  assert.match(source, /CAMERA_WATCH_MS/);
+  assert.match(source, /CAMERA_STALL_MS/);
+  assert.match(source, /CAMERA_RETRY_BASE_MS/);
+  assert.match(source, /CAMERA_RETRY_MAX_MS/);
+  assert.match(source, /_startCameraWatchdog\(\)/);
+  assert.match(source, /setInterval\(\(\) => this\._cameraWatchdogTick\(\), CAMERA_WATCH_MS\)/);
+  assert.match(source, /disconnectedCallback\(\)/);
+  assert.match(source, /_cameraWatchdogTick\(\)/);
+  assert.match(source, /player\.renderRoot\?\.querySelector\?\.\("video"\)/);
+  assert.match(source, /Boolean\(player\._error\)/);
+  assert.match(source, /degradedAt = now/);
+  assert.match(source, /_cameraRetryDelay/);
+  assert.match(source, /_retryDegradedCameras\(\)/);
+  assert.match(source, /2 \*\* Math\.min/);
+});
+
+test("degraded camera tiles show the last-good frame with a RECONNECTING label, never a black box", () => {
+  assert.match(source, /cameraDegradedMarkup/);
+  assert.match(source, /degradedAt != null \? "degraded"/);
+  assert.match(source, /camera-degraded \.camera-label b \{ color:var\(--gold\)/);
+  assert.match(source, /camera-degraded \.camera-still \{ opacity:\.8/);
+  assert.match(source, /health\.degradedAt = now/);
+});
+
 test("camera tile tap toggles the same persistent stream into and out of a magnified overlay", () => {
   assert.match(source, /this\._expandedCamera = null/);
   assert.match(source, /_toggleCameraZoom\(entity\)/);

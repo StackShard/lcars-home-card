@@ -39,6 +39,14 @@ export function cameraOfflineMarkup(name, entity, state, stillUrl) {
   return `<div class="camera camera-offline" data-camera-tile="${escapeAttribute(entity)}" role="button" tabindex="0" aria-expanded="false"><div class="camera-frame">${picture}<span class="camera-glyph" aria-hidden="true">&#9680;</span></div><div class="camera-label"><span>${escapeAttribute(label)}</span><b>OFFLINE</b></div></div>`;
 }
 
+export function cameraDegradedMarkup(name, entity, state, stillUrl) {
+  const label = String(name ?? "Camera").toUpperCase();
+  const picture = stillUrl
+    ? `<img class="camera-still" src="${escapeAttribute(stillUrl)}" alt="" loading="lazy" onerror="this.style.display='none'">`
+    : "";
+  return `<div class="camera camera-degraded" data-camera-tile="${escapeAttribute(entity)}" role="button" tabindex="0" aria-expanded="false"><div class="camera-frame">${picture}<span class="camera-glyph" aria-hidden="true">&#9680;</span></div><div class="camera-label"><span>${escapeAttribute(label)}</span><b>RECONNECTING</b></div></div>`;
+}
+
 export function lightsOn(states) {
   return Object.values(states ?? {})
     .filter((entity) => entity?.entity_id?.startsWith("light.") && entity.state === "on")

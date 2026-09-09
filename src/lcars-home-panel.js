@@ -1,4 +1,5 @@
 import {
+  cameraDegradedMarkup,
   cameraOfflineMarkup,
   cameraStreamMarkup,
   classifyForecast,
@@ -15,10 +16,14 @@ import {
   visibleForecast,
 } from "./lcars-adapters.js";
 
-const VERSION = "0.1.20";
+const VERSION = "0.1.21";
 const UNAVAILABLE = new Set(["unknown", "unavailable", "none", ""]);
 const CAMERA_FAILED = new Set(["unknown", "unavailable", "none", "", "off", "unavailable"]);
 const SUPPORTED_THEMES = new Set(["lcars", "cinnamoroll", "cinnamoroll-dark"]);
+const CAMERA_WATCH_MS = 10000;
+const CAMERA_STALL_MS = 25000;
+const CAMERA_RETRY_BASE_MS = 30000;
+const CAMERA_RETRY_MAX_MS = 300000;
 
 const DEFAULTS = {
   climate: "climate.home",
@@ -99,6 +104,8 @@ export class LcarsHomePanel extends HTMLElement {
     this._calendarError = null;
     this._unsubscribers = [];
     this._cameraTiles = {};
+    this._cameraHealth = {};
+    this._cameraWatchdogTimer = null;
     this._expandedCamera = null;
     this._pressureTrend = { direction: "unknown", arrow: "", delta: null };
     this._pressureTrendKey = null;
@@ -120,10 +127,12 @@ export class LcarsHomePanel extends HTMLElement {
   setConfig(config) {
     this._config = { ...config, entities: { ...DEFAULTS, ...(config?.entities ?? {}) } };
     this._cameraTiles = {};
+    this._cameraHealth = {};
     this._expandedCamera = null;
     this._pressureTrendKey = null;
     this._resetSubscriptions();
     this._buildShell();
+    this._startCameraWatchdog();
   }
 
   set hass(hass) {
@@ -137,10 +146,12 @@ export class LcarsHomePanel extends HTMLElement {
   connectedCallback() {
     if (!this._config) return;
     this._buildShell();
+    this._startCameraWatchdog();
   }
 
   disconnectedCallback() {
     this._resetSubscriptions();
+    this._stopCameraWatchdog();
   }
 
   getCardSize() {
@@ -257,6 +268,70 @@ export class LcarsHomePanel extends HTMLElement {
     });
   }
 
+  _startCameraWatchdog() {
+    if (this._cameraWatchdogTimer != null) return;
+    this._cameraWatchdogTimer = window.setInterval(() => this._cameraWatchdogTick(), CAMERA_WATCH_MS);
+  }
+
+  _stopCameraWatchdog() {
+    if (this._cameraWatchdogTimer == null) return;
+    window.clearInterval(this._cameraWatchdogTimer);
+    this._cameraWatchdogTimer = null;
+  }
+
+  _cameraWatchdogTick() {
+    if (!this._config?.entities || !this._hass) return;
+    this._retryDegradedCameras();
+    for (const [entity, health] of Object.entries(this._cameraHealth)) {
+      if (health.degradedAt != null) continue; // degraded tile: handled by retry timer
+      const tile = this._cameraTiles[entity]?.node;
+      const player = tile?.querySelector?.("ha-hls-player[data-camera]");
+      if (!player) continue;
+      const video = player.renderRoot?.querySelector?.("video") ?? player.shadowRoot?.querySelector?.("video");
+      const erroring = Boolean(player._error);
+      const stalled = !erroring && video != null && player._url != null
+        && video.readyState <= 2 && video.currentTime === health.lastTime;
+      const healthy = !erroring && !stalled;
+      const now = Date.now();
+      if (healthy) {
+        health.since = null;
+        health.attempts = 0;
+        health.lastTime = video?.currentTime ?? null;
+        health.retryAt = 0;
+        continue;
+      }
+      if (health.since == null) {
+        health.since = now;
+        health.lastTime = video?.currentTime ?? null;
+        continue;
+      }
+      if (now - health.since >= CAMERA_STALL_MS) {
+        health.attempts += 1;
+        health.degradedAt = now;
+        health.retryAt = now + this._cameraRetryDelay(health.attempts);
+        this._mountCameras(this.shadowRoot.querySelector("[data-cameras]"));
+      }
+    }
+  }
+
+  _cameraRetryDelay(attempt) {
+    const delay = CAMERA_RETRY_BASE_MS * (2 ** Math.min(attempt - 1, 5));
+    return Math.min(delay, CAMERA_RETRY_MAX_MS);
+  }
+
+  _retryDegradedCameras() {
+    const now = Date.now();
+    let changed = false;
+    for (const [entity, health] of Object.entries(this._cameraHealth)) {
+      if (health.degradedAt == null || now < health.retryAt) continue;
+      delete health.degradedAt;
+      health.since = null;
+      health.retryAt = 0;
+      changed = true;
+    }
+    if (changed) this._mountCameras(this.shadowRoot.querySelector("[data-cameras]"));
+  }
+
   _setClimate(direction) {
     const entity = this._config.entities.climate;
     const climate = this._state(entity);
@@ -274,6 +349,13 @@ export class LcarsHomePanel extends HTMLElement {
     const stateObj = this._state(entity);
     const state = stateObj?.state;
     const failed = !stateObj || CAMERA_FAILED.has(state);
+    const health = this._cameraHealth[entity];
+    const degraded = health?.degradedAt != null;
+    if (degraded) {
+      const picture = stateObj?.attributes?.entity_picture;
+      const url = picture ? (this._hass?.hassUrl ? this._hass.hassUrl(picture) : picture) : "";
+      return cameraDegradedMarkup(name, entity, state, url);
+    }
     if (failed) {
       const picture = stateObj?.attributes?.entity_picture;
       const url = picture ? (this._hass?.hassUrl ? this._hass.hassUrl(picture) : picture) : "";
@@ -289,8 +371,15 @@ export class LcarsHomePanel extends HTMLElement {
       : [];
     const expandedMount = this.shadowRoot.querySelector("[data-camera-expanded]");
     let changed = false;
+    for (const [, entity] of entries) {
+      if (!this._cameraHealth[entity]) {
+        this._cameraHealth[entity] = { since: null, lastTime: null, attempts: 0, retryAt: 0, degradedAt: null };
+      }
+    }
     for (const [name, entity] of entries) {
-      const key = `${entity}|${this._state(entity)?.state ?? "missing"}`;
+      const health = this._cameraHealth[entity];
+      const mode = health?.degradedAt != null ? "degraded" : this._state(entity)?.state ?? "missing";
+      const key = `${entity}|${mode}`;
       const cached = this._cameraTiles[entity];
       if (!cached || cached.key !== key) {
         const template = document.createElement("template");
@@ -470,7 +559,7 @@ const STYLE = `
 .columns { display:grid; grid-template-columns:minmax(0,.94fr) minmax(0,1.06fr); gap:10px; padding:12px 12px 16px; align-items:start; } .left-column,.right-column { min-width:0; display:flex; flex-direction:column; gap:10px; }
 .panel { min-width:0; background:var(--panel-bg); overflow:hidden; } .tab { color:var(--on-tab); font-weight:950; letter-spacing:.13em; font-size:11px; min-height:29px; padding:7px 10px 7px 0; display:flex; align-items:center; width:100%; clip-path:polygon(0 0,100% 0,100% 48%,calc(100% - 16px) 100%,0 100%); } .tab span { display:block; padding-left:13px; } .tab.sky { background:var(--sky); } .tab.apricot { background:var(--apricot); } .tab.salmon { background:var(--salmon); } .tab.lilac { background:var(--lilac); } .tab.gold { background:var(--gold); } .tab.mint { background:var(--mint); }
 .security-panel { --panel:var(--sky); } .security-list { display:grid; grid-template-columns:1fr 1fr; padding:8px; gap:5px; } .security-row { background:var(--row); padding:7px 9px; display:flex; justify-content:space-between; gap:4px; align-items:center; color:var(--text); font-size:10.5px; font-weight:800; letter-spacing:.05em; } .security-row:last-child { grid-column:span 2; } .security-row b { color:var(--sky-ink); font-size:9.5px; } .security-row.alert { background:#412227; color:#ffd6cd; } .security-row.alert b { color:#ff9c8d; }
-.cameras-panel { --panel:var(--sky); } .cameras { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; padding:7px; } .camera { background:#15171e; min-width:0; min-height:0; aspect-ratio:16/9; overflow:hidden; position:relative; cursor:pointer; touch-action:manipulation; } .camera:focus-visible { outline:3px solid var(--sky-ink); outline-offset:-3px; } .camera-stream { display:block; width:100%; height:100%; background:#0a0b0e; } .camera-frame { position:absolute; inset:0; display:grid; place-items:center; background:#0c0d11; } .camera-still { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; opacity:.4; filter:grayscale(.4); } .camera-glyph { font-size:26px; color:var(--cam-glyph); position:relative; } .camera-label { position:absolute; inset:auto 0 0; min-height:24px; padding:5px 6px; background:rgba(5,6,9,.78); display:flex; justify-content:space-between; align-items:center; color:#edf5f6; font-size:8.5px; font-weight:850; letter-spacing:.05em; pointer-events:none; } .camera-label b { color:var(--sky-ink); font-size:8px; } .camera-offline .camera-label b { color:#ff9c8d; }
+.cameras-panel { --panel:var(--sky); } .cameras { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; padding:7px; } .camera { background:#15171e; min-width:0; min-height:0; aspect-ratio:16/9; overflow:hidden; position:relative; cursor:pointer; touch-action:manipulation; } .camera:focus-visible { outline:3px solid var(--sky-ink); outline-offset:-3px; } .camera-stream { display:block; width:100%; height:100%; background:#0a0b0e; } .camera-frame { position:absolute; inset:0; display:grid; place-items:center; background:#0c0d11; } .camera-still { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; opacity:.4; filter:grayscale(.4); } .camera-glyph { font-size:26px; color:var(--cam-glyph); position:relative; } .camera-label { position:absolute; inset:auto 0 0; min-height:24px; padding:5px 6px; background:rgba(5,6,9,.78); display:flex; justify-content:space-between; align-items:center; color:#edf5f6; font-size:8.5px; font-weight:850; letter-spacing:.05em; pointer-events:none; } .camera-label b { color:var(--sky-ink); font-size:8px; } .camera-offline .camera-label b { color:#ff9c8d; } .camera-degraded .camera-label b { color:var(--gold); } .camera-degraded .camera-still { opacity:.8; filter:none; }
 .camera-overlay { position:absolute; inset:0; z-index:20; display:none; place-items:center; padding:34px; background:rgba(8,14,22,.88); backdrop-filter:blur(8px); } .camera-overlay.open { display:grid; } .camera-expanded-mount { width:min(700px,100%); } .camera-expanded-mount .camera { width:100%; aspect-ratio:16/9; border:3px solid var(--sky); border-radius:16px; box-shadow:0 18px 60px rgba(0,0,0,.45); } .camera-expanded-mount .camera-label { min-height:38px; padding:8px 12px; font-size:13px; } .camera-expanded-mount .camera-label b { font-size:11px; }
 .events { padding:7px 9px; display:flex; flex-direction:column; gap:5px; } .event { display:grid; grid-template-columns:48px 1fr; gap:8px; align-items:start; border-left:3px solid var(--apricot-ink); padding:6px 7px; background:var(--row); color:var(--text); font-size:11.5px; line-height:1.3; } .event time { color:var(--apricot-ink); font-weight:900; font-size:9.5px; letter-spacing:.04em; padding-top:1px; } .event.past { opacity:.57; border-left-color:var(--event-past-line); } .event.empty { display:block; background:transparent; border-left-color:transparent; color:var(--text-2); font-size:11px; padding:2px 6px; }
 .climate-weather-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; align-items:stretch; } .climate-weather-row .panel { display:flex; flex-direction:column; } .climate-weather-row .tab { font-size:8px; letter-spacing:.06em; padding-right:5px; } .climate-weather-row .tab span { padding-left:9px; white-space:nowrap; }

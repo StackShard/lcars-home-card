@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  cameraDegradedMarkup,
   cameraOfflineMarkup,
   cameraStreamMarkup,
   classifyForecast,
@@ -80,6 +81,20 @@ test("cameraOfflineMarkup renders a placeholder glyph with last-good frame, neve
   const noFrame = cameraOfflineMarkup("Back Door", "camera.back_door", "off", "");
   assert.doesNotMatch(noFrame, /camera-still/);
   assert.match(noFrame, /camera-glyph/);
+});
+
+test("cameraDegradedMarkup renders a reconnecting still tile with no live player", () => {
+  const markup = cameraDegradedMarkup("Front Door", "camera.front_door_camera", "streaming", "/api/camera_proxy/front");
+  assert.match(markup, /class="camera camera-degraded"/);
+  assert.match(markup, /class="camera-glyph"/);
+  assert.match(markup, /camera-still/);
+  assert.match(markup, /RECONNECTING/);
+  assert.match(markup, /data-camera-tile="camera\.front_door_camera"/);
+  assert.doesNotMatch(markup, /<ha-hls-player/);
+  assert.doesNotMatch(markup, /LIVE/);
+  const noFrame = cameraDegradedMarkup("Front Door", "camera.front_door_camera", "streaming", "");
+  assert.doesNotMatch(noFrame, /camera-still/);
+  assert.match(noFrame, /RECONNECTING/);
 });
 
 test("nextTemperature clamps, respects step, and handles missing values", () => {
